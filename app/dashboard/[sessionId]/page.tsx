@@ -48,8 +48,9 @@ export default function DashboardPage() {
     isSimulating: true, // Auto-start when game starts
     addingParticipants: true,
   });
-  const participantCountRef = useRef(0); // Track count to avoid race conditions
+  const addedCountRef = useRef(0); // Track how many we've added (never resets)
   const personalitiesRef = useRef<Record<string, string[]>>({}); // Store participant "personalities"
+  const processIndexRef = useRef(0); // Rotate through participants
 
   // Subscribe to session data
   useEffect(() => {
@@ -91,52 +92,54 @@ export default function DashboardPage() {
     const simulateParticipants = async () => {
       const participants = session.participants || {};
       const currentCount = Object.keys(participants).length;
-      participantCountRef.current = currentCount;
 
-      // Add participants only if under limit AND we're set to add
-      if (debugSettings.addingParticipants && currentCount < debugSettings.maxParticipants) {
-        // Only add one at a time to avoid race conditions
-        if (participantCountRef.current < debugSettings.maxParticipants) {
-          participantCountRef.current++; // Optimistic increment
-          const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Parker', 'Jamie', 'Drew', 'Blake', 'Reese', 'Skyler'];
-          const randomName = names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 100);
-          await addParticipant(sessionId, randomName);
-        }
+      // Add participants only if we haven't added enough yet
+      // Use addedCountRef to track independently of Firebase lag
+      if (debugSettings.addingParticipants && addedCountRef.current < debugSettings.maxParticipants) {
+        addedCountRef.current++;
+        const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Parker', 'Jamie', 'Drew', 'Blake', 'Reese', 'Skyler', 'Devon', 'Hayden', 'Emery', 'Rowan', 'Sage'];
+        const randomName = names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 100);
+        await addParticipant(sessionId, randomName);
       }
 
       // Only make choices when game is actually playing
       if (session.gameState !== 'playing') return;
 
-      // Make choices for existing participants based on their personality
+      // Make choices for ALL participants, rotating through them
       const participantArray = Object.values(participants);
-      // Process more participants per tick
-      const toProcess = participantArray.slice(0, Math.min(15, participantArray.length));
+      if (participantArray.length === 0) return;
 
-      for (const participant of toProcess) {
-        // Higher chance to make a choice (80%)
-        if (Math.random() > 0.2) {
-          const choices = participant.choices ? Object.values(participant.choices) : [];
-          if (choices.length < 40) {
-            const personality = getOrAssignPersonality(participant.odId);
-            const unseenContent = contentPool.filter(
-              (c) => !choices.some((ch: Choice) => ch.contentId === c.id)
-            );
+      // Process a batch starting from rotating index (so everyone gets a turn)
+      const batchSize = Math.min(10, participantArray.length);
+      const startIdx = processIndexRef.current % participantArray.length;
+      processIndexRef.current = (processIndexRef.current + batchSize) % Math.max(1, participantArray.length);
 
-            if (unseenContent.length > 0) {
-              const randomContent = unseenContent[Math.floor(Math.random() * unseenContent.length)];
-              const contentCategory = randomContent.category.split('_')[0];
+      for (let i = 0; i < batchSize; i++) {
+        const idx = (startIdx + i) % participantArray.length;
+        const participant = participantArray[idx];
 
-              // Like probability based on personality match
-              // 85% like if matches personality, 15% like if doesn't
-              const matchesPersonality = personality.includes(contentCategory);
-              const likeChance = matchesPersonality ? 0.85 : 0.15;
+        const choices = participant.choices ? Object.values(participant.choices) : [];
+        // Everyone makes a choice if they haven't finished
+        if (choices.length < 40) {
+          const personality = getOrAssignPersonality(participant.odId);
+          const unseenContent = contentPool.filter(
+            (c) => !choices.some((ch: Choice) => ch.contentId === c.id)
+          );
 
-              await recordChoice(sessionId, participant.odId, {
-                contentId: randomContent.id,
-                action: Math.random() < likeChance ? 'like' : 'skip',
-                timestamp: Date.now(),
-              });
-            }
+          if (unseenContent.length > 0) {
+            const randomContent = unseenContent[Math.floor(Math.random() * unseenContent.length)];
+            const contentCategory = randomContent.category.split('_')[0];
+
+            // Like probability based on personality match
+            // 85% like if matches personality, 15% like if doesn't
+            const matchesPersonality = personality.includes(contentCategory);
+            const likeChance = matchesPersonality ? 0.85 : 0.15;
+
+            await recordChoice(sessionId, participant.odId, {
+              contentId: randomContent.id,
+              action: Math.random() < likeChance ? 'like' : 'skip',
+              timestamp: Date.now(),
+            });
           }
         }
       }
@@ -269,6 +272,10 @@ export default function DashboardPage() {
     setSharedReality(100);
     setClusters([]);
     setShowQR(true);
+    // Reset debug counters
+    addedCountRef.current = 0;
+    processIndexRef.current = 0;
+    personalitiesRef.current = {};
   }, [sessionId, session?.config?.roundDurationSeconds]);
 
   if (!session) {
@@ -303,34 +310,57 @@ export default function DashboardPage() {
     const totalSwipes = session.stats?.totalChoicesMade || 0;
     const avgSwipesPerPerson = participantCount > 0 ? Math.round(totalSwipes / participantCount) : 0;
 
-    // Find most polarizing topics
-    const categoryStats: Record<string, { likes: number; skips: number }> = {};
+    // Category analysis
+    const categoryStats: Record<string, { likes: number; skips: number; uniqueLikers: Set<string> }> = {};
     participantList.forEach((p) => {
       const choices = p.choices ? Object.values(p.choices) : [];
       choices.forEach((c: Choice) => {
         const content = contentPool.find((item) => item.id === c.contentId);
         if (content) {
           const cat = content.category.split('_')[0];
-          if (!categoryStats[cat]) categoryStats[cat] = { likes: 0, skips: 0 };
-          if (c.action === 'like') categoryStats[cat].likes++;
-          else categoryStats[cat].skips++;
+          if (!categoryStats[cat]) categoryStats[cat] = { likes: 0, skips: 0, uniqueLikers: new Set() };
+          if (c.action === 'like') {
+            categoryStats[cat].likes++;
+            categoryStats[cat].uniqueLikers.add(p.odId);
+          } else {
+            categoryStats[cat].skips++;
+          }
         }
       });
     });
 
-    const mostLiked = Object.entries(categoryStats).sort((a, b) => b[1].likes - a[1].likes)[0];
-    const mostSkipped = Object.entries(categoryStats).sort((a, b) => b[1].skips - a[1].skips)[0];
+    // Find interesting insights
     const mostPolarizing = Object.entries(categoryStats)
       .map(([cat, stats]) => ({ cat, ratio: Math.min(stats.likes, stats.skips) / Math.max(stats.likes, stats.skips, 1) }))
       .sort((a, b) => b.ratio - a.ratio)[0];
 
-    const facts = [
-      { label: 'Total Swipes', value: totalSwipes.toLocaleString(), color: '#00F0FF' },
-      { label: 'Avg per Person', value: avgSwipesPerPerson.toString(), color: '#FF00E5' },
-      { label: 'Most Loved', value: mostLiked?.[0] || 'N/A', color: '#39FF14' },
-      { label: 'Most Skipped', value: mostSkipped?.[0] || 'N/A', color: '#FF0055' },
-      { label: 'Most Divisive', value: mostPolarizing?.cat || 'N/A', color: '#FFE500' },
-      { label: 'Bubbles Formed', value: clusters.length.toString(), color: '#BF00FF' },
+    const mostUnifying = Object.entries(categoryStats)
+      .map(([cat, stats]) => ({ cat, pct: (stats.uniqueLikers.size / participantCount) * 100 }))
+      .sort((a, b) => b.pct - a.pct)[0];
+
+    const leastPopular = Object.entries(categoryStats)
+      .map(([cat, stats]) => ({ cat, pct: (stats.uniqueLikers.size / participantCount) * 100 }))
+      .sort((a, b) => a.pct - b.pct)[0];
+
+    // Calculate "echo chamber strength" - how much people stayed in their lanes
+    const avgCategoriesPerPerson = participantList.reduce((sum, p) => {
+      const choices = p.choices ? Object.values(p.choices) : [];
+      const likedCats = new Set(choices.filter((c: Choice) => c.action === 'like').map((c: Choice) => {
+        const content = contentPool.find((item) => item.id === c.contentId);
+        return content ? content.category.split('_')[0] : null;
+      }).filter(Boolean));
+      return sum + likedCats.size;
+    }, 0) / Math.max(1, participantCount);
+
+    const echoStrength = Math.round(100 - (avgCategoriesPerPerson / 8) * 100); // 8 categories
+
+    const insights = [
+      { emoji: '🔥', label: 'Split the Room', value: mostPolarizing?.cat || 'N/A', desc: 'Most divisive topic' },
+      { emoji: '🤝', label: 'Common Ground', value: mostUnifying?.cat || 'N/A', desc: `${Math.round(mostUnifying?.pct || 0)}% liked it` },
+      { emoji: '🙈', label: 'Ghost Town', value: leastPopular?.cat || 'N/A', desc: 'Least popular' },
+      { emoji: '🫧', label: 'Echo Chamber', value: `${echoStrength}%`, desc: 'How siloed were we' },
+      { emoji: '⚡', label: 'Total Swipes', value: totalSwipes.toLocaleString(), desc: `${avgSwipesPerPerson} per person` },
+      { emoji: '🎯', label: 'Filter Bubbles', value: clusters.length.toString(), desc: 'Distinct groups' },
     ];
 
     return (
@@ -345,7 +375,7 @@ export default function DashboardPage() {
           <h1 className="projector-text-xl text-glow-cyan">BUBBLE FORMED</h1>
         </div>
 
-        {/* Main content - split layout */}
+        {/* Main content - side by side layout */}
         <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden">
           {/* Dispersing particles animation */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
@@ -361,63 +391,69 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Left side - Main percentage (slides left) */}
-          <motion.div
-            className="text-center relative z-10"
-            initial={{ x: 0 }}
-            animate={{ x: '-20%' }}
-            transition={{ delay: 4, duration: 1, ease: 'easeInOut' }}
-          >
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-6">
-              <p className="text-text-muted text-xl mb-2">You started with</p>
-              <p className="text-7xl font-black text-glow-green text-neon-green">100%</p>
-              <p className="text-text-muted text-lg">shared reality</p>
-            </motion.div>
-
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="text-3xl text-text-muted mb-6">
-              ↓
-            </motion.div>
-
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.5 }}>
-              <p className="text-text-muted text-xl mb-2">You ended with only</p>
-              <p className={`text-8xl font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
-                {sharedReality}%
-              </p>
-              <p className="text-text-muted text-lg">shared reality</p>
-            </motion.div>
-
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-8 text-xl text-text-muted">
-              {clusters.length > 0 && (
-                <>
-                  <span className="text-neon-blue">{clusters.length}</span> bubbles among{' '}
-                  <span className="text-neon-pink">{participantCount}</span> people
-                </>
-              )}
-            </motion.p>
-          </motion.div>
-
-          {/* Right side - Fascinating facts cards (slides in) */}
-          <motion.div
-            className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-4 pr-8"
-            initial={{ x: '100%', opacity: 0 }}
-            animate={{ x: '0%', opacity: 1 }}
-            transition={{ delay: 4.5, duration: 0.8, ease: 'easeOut' }}
-          >
-            <p className="text-text-muted text-sm uppercase tracking-wider mb-2">Session Stats</p>
-            {facts.map((fact, idx) => (
-              <motion.div
-                key={fact.label}
-                className="bg-bg-card/80 border-l-4 px-6 py-3 min-w-[200px]"
-                style={{ borderColor: fact.color }}
-                initial={{ x: 50, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 4.8 + idx * 0.15 }}
-              >
-                <p className="text-text-muted text-xs uppercase">{fact.label}</p>
-                <p className="text-2xl font-bold capitalize" style={{ color: fact.color }}>{fact.value}</p>
+          <div className="flex items-center gap-16 relative z-10 max-w-6xl w-full">
+            {/* Left side - Main percentage */}
+            <div className="flex-1 text-center">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-4">
+                <p className="text-text-muted text-lg mb-1">Started with</p>
+                <p className="text-6xl font-black text-glow-green text-neon-green">100%</p>
               </motion.div>
-            ))}
-          </motion.div>
+
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }} className="text-2xl text-text-muted mb-4">
+                ↓
+              </motion.div>
+
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.2 }}>
+                <p className="text-text-muted text-lg mb-1">Ended with</p>
+                <p className={`text-7xl font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
+                  {sharedReality}%
+                </p>
+                <p className="text-text-muted text-sm mt-2">shared reality</p>
+              </motion.div>
+
+              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2 }} className="mt-6 text-lg text-text-muted">
+                <span className="text-neon-blue">{participantCount}</span> people → <span className="text-neon-pink">{clusters.length}</span> bubbles
+              </motion.p>
+            </div>
+
+            {/* Divider */}
+            <motion.div
+              className="w-px h-80 bg-gradient-to-b from-transparent via-neon-blue/50 to-transparent"
+              initial={{ opacity: 0, scaleY: 0 }}
+              animate={{ opacity: 1, scaleY: 1 }}
+              transition={{ delay: 1.5, duration: 0.5 }}
+            />
+
+            {/* Right side - Insights grid */}
+            <div className="flex-1">
+              <motion.p
+                className="text-text-muted text-sm uppercase tracking-wider mb-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.8 }}
+              >
+                What Happened
+              </motion.p>
+              <div className="grid grid-cols-2 gap-3">
+                {insights.map((insight, idx) => (
+                  <motion.div
+                    key={insight.label}
+                    className="bg-bg-card/60 p-4 border-l-2 border-neon-blue/30"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 2 + idx * 0.1 }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">{insight.emoji}</span>
+                      <span className="text-text-muted text-xs uppercase">{insight.label}</span>
+                    </div>
+                    <p className="text-xl font-bold text-white capitalize">{insight.value}</p>
+                    <p className="text-text-muted text-xs">{insight.desc}</p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Reset button */}
