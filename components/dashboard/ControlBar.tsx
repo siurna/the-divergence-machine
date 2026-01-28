@@ -40,8 +40,6 @@ export function ControlBar({
         return 'REVEAL';
       case 'ended':
         return 'ENDED';
-      default:
-        return gameState.toUpperCase();
     }
   };
 
