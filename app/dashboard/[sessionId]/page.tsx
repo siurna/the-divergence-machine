@@ -43,10 +43,13 @@ export default function DashboardPage() {
 
   // Debug mode controls
   const [debugSettings, setDebugSettings] = useState({
-    maxParticipants: 35,
-    simulationSpeed: 500,
-    isSimulating: true,
+    maxParticipants: 30,
+    simulationSpeed: 800,
+    isSimulating: false, // Start paused - user must click to start
+    addingParticipants: true,
   });
+  const participantCountRef = useRef(0); // Track count to avoid race conditions
+  const personalitiesRef = useRef<Record<string, string[]>>({}); // Store participant "personalities"
 
   // Subscribe to session data
   useEffect(() => {
@@ -58,6 +61,19 @@ export default function DashboardPage() {
     });
     return () => unsubscribe();
   }, [sessionId]);
+
+  // Category groups for personality assignment
+  const categoryGroups = ['politics', 'tech', 'entertainment', 'science', 'sports', 'lifestyle', 'finance', 'animals'];
+
+  // Assign a personality (2-3 preferred categories) to a participant
+  const getOrAssignPersonality = (odId: string): string[] => {
+    if (!personalitiesRef.current[odId]) {
+      // Randomly pick 2-3 categories this participant will strongly prefer
+      const shuffled = [...categoryGroups].sort(() => Math.random() - 0.5);
+      personalitiesRef.current[odId] = shuffled.slice(0, 2 + Math.floor(Math.random() * 2));
+    }
+    return personalitiesRef.current[odId];
+  };
 
   // Debug mode - simulate random participants
   useEffect(() => {
@@ -71,31 +87,47 @@ export default function DashboardPage() {
 
     const simulateParticipants = async () => {
       const participants = session.participants || {};
-      const participantCount = Object.keys(participants).length;
+      const currentCount = Object.keys(participants).length;
+      participantCountRef.current = currentCount;
 
-      // Add more participants only if under max limit
-      if (participantCount < debugSettings.maxParticipants) {
-        const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Parker'];
-        const randomName = names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 100);
-        await addParticipant(sessionId, randomName);
+      // Add participants only if under limit AND we're set to add
+      if (debugSettings.addingParticipants && currentCount < debugSettings.maxParticipants) {
+        // Only add one at a time to avoid race conditions
+        if (participantCountRef.current < debugSettings.maxParticipants) {
+          participantCountRef.current++; // Optimistic increment
+          const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Parker', 'Jamie', 'Drew', 'Blake', 'Reese', 'Skyler'];
+          const randomName = names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 100);
+          await addParticipant(sessionId, randomName);
+        }
       }
 
-      // Make random choices for existing participants
+      // Make choices for existing participants based on their personality
       const participantArray = Object.values(participants);
-      // Only process a subset each tick to avoid overwhelming Firebase
-      const toProcess = participantArray.slice(0, 10);
+      // Process more participants per tick
+      const toProcess = participantArray.slice(0, Math.min(15, participantArray.length));
+
       for (const participant of toProcess) {
-        if (Math.random() > 0.6) {
+        // Higher chance to make a choice (80%)
+        if (Math.random() > 0.2) {
           const choices = participant.choices ? Object.values(participant.choices) : [];
           if (choices.length < 40) {
+            const personality = getOrAssignPersonality(participant.odId);
             const unseenContent = contentPool.filter(
               (c) => !choices.some((ch: Choice) => ch.contentId === c.id)
             );
+
             if (unseenContent.length > 0) {
               const randomContent = unseenContent[Math.floor(Math.random() * unseenContent.length)];
+              const contentCategory = randomContent.category.split('_')[0];
+
+              // Like probability based on personality match
+              // 85% like if matches personality, 15% like if doesn't
+              const matchesPersonality = personality.includes(contentCategory);
+              const likeChance = matchesPersonality ? 0.85 : 0.15;
+
               await recordChoice(sessionId, participant.odId, {
                 contentId: randomContent.id,
-                action: Math.random() > 0.4 ? 'like' : 'skip',
+                action: Math.random() < likeChance ? 'like' : 'skip',
                 timestamp: Date.now(),
               });
             }
@@ -108,7 +140,7 @@ export default function DashboardPage() {
     return () => {
       if (debugRef.current) clearInterval(debugRef.current);
     };
-  }, [isDebugMode, session?.gameState, sessionId, debugSettings.isSimulating, debugSettings.maxParticipants, debugSettings.simulationSpeed]);
+  }, [isDebugMode, session?.gameState, sessionId, debugSettings.isSimulating, debugSettings.addingParticipants, debugSettings.maxParticipants, debugSettings.simulationSpeed]);
 
   // Calculate and update stats periodically
   useEffect(() => {
@@ -261,11 +293,45 @@ export default function DashboardPage() {
       color: ['#FF0055', '#00F0FF', '#FF00E5', '#39FF14', '#FF6B00', '#BF00FF'][Math.floor(Math.random() * 6)],
     }));
 
+    // Calculate fascinating facts
+    const totalSwipes = session.stats?.totalChoicesMade || 0;
+    const avgSwipesPerPerson = participantCount > 0 ? Math.round(totalSwipes / participantCount) : 0;
+
+    // Find most polarizing topics
+    const categoryStats: Record<string, { likes: number; skips: number }> = {};
+    participantList.forEach((p) => {
+      const choices = p.choices ? Object.values(p.choices) : [];
+      choices.forEach((c: Choice) => {
+        const content = contentPool.find((item) => item.id === c.contentId);
+        if (content) {
+          const cat = content.category.split('_')[0];
+          if (!categoryStats[cat]) categoryStats[cat] = { likes: 0, skips: 0 };
+          if (c.action === 'like') categoryStats[cat].likes++;
+          else categoryStats[cat].skips++;
+        }
+      });
+    });
+
+    const mostLiked = Object.entries(categoryStats).sort((a, b) => b[1].likes - a[1].likes)[0];
+    const mostSkipped = Object.entries(categoryStats).sort((a, b) => b[1].skips - a[1].skips)[0];
+    const mostPolarizing = Object.entries(categoryStats)
+      .map(([cat, stats]) => ({ cat, ratio: Math.min(stats.likes, stats.skips) / Math.max(stats.likes, stats.skips, 1) }))
+      .sort((a, b) => b.ratio - a.ratio)[0];
+
+    const facts = [
+      { label: 'Total Swipes', value: totalSwipes.toLocaleString(), color: '#00F0FF' },
+      { label: 'Avg per Person', value: avgSwipesPerPerson.toString(), color: '#FF00E5' },
+      { label: 'Most Loved', value: mostLiked?.[0] || 'N/A', color: '#39FF14' },
+      { label: 'Most Skipped', value: mostSkipped?.[0] || 'N/A', color: '#FF0055' },
+      { label: 'Most Divisive', value: mostPolarizing?.cat || 'N/A', color: '#FFE500' },
+      { label: 'Bubbles Formed', value: clusters.length.toString(), color: '#BF00FF' },
+    ];
+
     return (
       <div className="h-screen bg-bg-dark cyber-grid overflow-hidden flex flex-col relative">
         {/* Site URL */}
         <div className="absolute top-4 left-4 z-20">
-          <span className="site-url text-text-muted font-mono">makeyourownbubble.com</span>
+          <span className="site-url-large text-neon-blue font-mono">makeyourownbubble.com</span>
         </div>
 
         {/* Header */}
@@ -273,128 +339,79 @@ export default function DashboardPage() {
           <h1 className="projector-text-xl text-glow-cyan">BUBBLE FORMED</h1>
         </div>
 
-        {/* Main insight */}
-        <div className="flex-1 flex items-center justify-center p-8 relative">
+        {/* Main content - split layout */}
+        <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden">
           {/* Dispersing particles animation */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
             {particles.map((particle) => (
               <motion.div
                 key={particle.id}
                 className="absolute w-8 h-10 rounded bg-gradient-to-b from-white/20 to-transparent"
-                style={{
-                  backgroundColor: particle.color,
-                  boxShadow: `0 0 10px ${particle.color}`,
-                }}
+                style={{ backgroundColor: particle.color, boxShadow: `0 0 10px ${particle.color}` }}
                 initial={{ x: 0, y: 0, opacity: 0, scale: 1, rotate: 0 }}
-                animate={{
-                  x: particle.x,
-                  y: particle.y,
-                  opacity: [0, 1, 1, 0],
-                  scale: [1, 1, 0.5, 0],
-                  rotate: (Math.random() - 0.5) * 180,
-                }}
-                transition={{
-                  duration: 2.5,
-                  delay: 1.5 + particle.delay,
-                  ease: 'easeOut',
-                }}
+                animate={{ x: particle.x, y: particle.y, opacity: [0, 1, 1, 0], scale: [1, 1, 0.5, 0], rotate: (Math.random() - 0.5) * 180 }}
+                transition={{ duration: 2.5, delay: 1.5 + particle.delay, ease: 'easeOut' }}
               />
             ))}
           </div>
 
-          <div className="text-center max-w-4xl relative z-10">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', damping: 10 }}
-              className="mb-8"
-            >
-              <p className="text-text-muted text-2xl mb-4">You started with</p>
-              <p className="text-9xl font-black text-glow-green text-neon-green">100%</p>
-              <p className="text-text-muted text-2xl">shared reality</p>
+          {/* Left side - Main percentage (slides left) */}
+          <motion.div
+            className="text-center relative z-10"
+            initial={{ x: 0 }}
+            animate={{ x: '-20%' }}
+            transition={{ delay: 4, duration: 1, ease: 'easeInOut' }}
+          >
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-6">
+              <p className="text-text-muted text-xl mb-2">You started with</p>
+              <p className="text-7xl font-black text-glow-green text-neon-green">100%</p>
+              <p className="text-text-muted text-lg">shared reality</p>
             </motion.div>
 
-            {/* Animated dispersing visual */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 1, duration: 0.5 }}
-              className="relative h-32 mb-8"
-            >
-              {/* Compact cluster */}
-              <motion.div
-                className="absolute left-1/2 top-0 -translate-x-1/2 flex gap-1"
-                animate={{ opacity: [1, 1, 0] }}
-                transition={{ delay: 1, duration: 1 }}
-              >
-                {[...Array(7)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-4 h-4 rounded-full bg-neon-green"
-                    style={{ boxShadow: '0 0 8px rgba(57, 255, 20, 0.5)' }}
-                  />
-                ))}
-              </motion.div>
-
-              {/* Arrow */}
-              <motion.div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-4xl text-text-muted"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.2 }}
-              >
-                ↓
-              </motion.div>
-
-              {/* Dispersed clusters */}
-              <motion.div
-                className="absolute left-1/2 bottom-0 -translate-x-1/2 flex gap-8"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 2 }}
-              >
-                <div className="flex gap-1">
-                  <div className="w-3 h-3 rounded-full bg-neon-pink" style={{ boxShadow: '0 0 6px rgba(255, 0, 229, 0.5)' }} />
-                  <div className="w-3 h-3 rounded-full bg-neon-pink" style={{ boxShadow: '0 0 6px rgba(255, 0, 229, 0.5)' }} />
-                </div>
-                <div className="flex gap-1">
-                  <div className="w-3 h-3 rounded-full bg-neon-blue" style={{ boxShadow: '0 0 6px rgba(0, 240, 255, 0.5)' }} />
-                  <div className="w-3 h-3 rounded-full bg-neon-blue" style={{ boxShadow: '0 0 6px rgba(0, 240, 255, 0.5)' }} />
-                  <div className="w-3 h-3 rounded-full bg-neon-blue" style={{ boxShadow: '0 0 6px rgba(0, 240, 255, 0.5)' }} />
-                </div>
-                <div className="flex gap-1">
-                  <div className="w-3 h-3 rounded-full bg-warning" style={{ boxShadow: '0 0 6px rgba(255, 107, 0, 0.5)' }} />
-                  <div className="w-3 h-3 rounded-full bg-warning" style={{ boxShadow: '0 0 6px rgba(255, 107, 0, 0.5)' }} />
-                </div>
-              </motion.div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="text-3xl text-text-muted mb-6">
+              ↓
             </motion.div>
 
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', damping: 10, delay: 2.5 }}
-            >
-              <p className="text-text-muted text-2xl mb-4">You ended with only</p>
-              <p className={`text-9xl font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.5 }}>
+              <p className="text-text-muted text-xl mb-2">You ended with only</p>
+              <p className={`text-8xl font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
                 {sharedReality}%
               </p>
-              <p className="text-text-muted text-2xl">shared reality</p>
+              <p className="text-text-muted text-lg">shared reality</p>
             </motion.div>
 
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 3.5 }}
-              className="mt-16 text-3xl text-text-muted"
-            >
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-8 text-xl text-text-muted">
               {clusters.length > 0 && (
                 <>
-                  <span className="text-neon-blue">{clusters.length}</span> distinct bubbles formed among{' '}
+                  <span className="text-neon-blue">{clusters.length}</span> bubbles among{' '}
                   <span className="text-neon-pink">{participantCount}</span> people
                 </>
               )}
             </motion.p>
-          </div>
+          </motion.div>
+
+          {/* Right side - Fascinating facts cards (slides in) */}
+          <motion.div
+            className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-4 pr-8"
+            initial={{ x: '100%', opacity: 0 }}
+            animate={{ x: '0%', opacity: 1 }}
+            transition={{ delay: 4.5, duration: 0.8, ease: 'easeOut' }}
+          >
+            <p className="text-text-muted text-sm uppercase tracking-wider mb-2">Session Stats</p>
+            {facts.map((fact, idx) => (
+              <motion.div
+                key={fact.label}
+                className="bg-bg-card/80 border-l-4 px-6 py-3 min-w-[200px]"
+                style={{ borderColor: fact.color }}
+                initial={{ x: 50, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 4.8 + idx * 0.15 }}
+              >
+                <p className="text-text-muted text-xs uppercase">{fact.label}</p>
+                <p className="text-2xl font-bold capitalize" style={{ color: fact.color }}>{fact.value}</p>
+              </motion.div>
+            ))}
+          </motion.div>
         </div>
 
         {/* Reset button */}
@@ -523,16 +540,31 @@ export default function DashboardPage() {
 
       {/* Debug controls panel */}
       {isDebugMode && (
-        <div className="absolute bottom-28 left-4 bg-bg-card/90 border border-warning text-warning p-4 font-mono text-sm space-y-3 min-w-[200px]">
-          <div className="text-xs uppercase tracking-wider mb-2">Debug Controls</div>
+        <div className="absolute bottom-28 left-4 bg-bg-card/95 border border-warning text-warning p-4 font-mono text-sm space-y-3 min-w-[240px]">
+          <div className="text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
+            Debug Controls
+          </div>
+
+          {/* Main simulation toggle - big button */}
+          <button
+            onClick={() => setDebugSettings(s => ({ ...s, isSimulating: !s.isSimulating }))}
+            className={`w-full py-3 text-sm font-bold uppercase tracking-wider transition-all ${
+              debugSettings.isSimulating
+                ? 'bg-neon-green/20 text-neon-green border border-neon-green/50'
+                : 'bg-neon-pink/20 text-neon-pink border border-neon-pink/50'
+            }`}
+          >
+            {debugSettings.isSimulating ? '⏸ PAUSE SWIPING' : '▶ START SWIPING'}
+          </button>
 
           <div className="flex items-center justify-between gap-4">
-            <span className="text-text-muted text-xs">Simulation</span>
+            <span className="text-text-muted text-xs">Add New Users</span>
             <button
-              onClick={() => setDebugSettings(s => ({ ...s, isSimulating: !s.isSimulating }))}
-              className={`px-2 py-1 text-xs ${debugSettings.isSimulating ? 'bg-neon-green/20 text-neon-green' : 'bg-danger/20 text-danger'}`}
+              onClick={() => setDebugSettings(s => ({ ...s, addingParticipants: !s.addingParticipants }))}
+              className={`px-2 py-1 text-xs ${debugSettings.addingParticipants ? 'bg-neon-blue/20 text-neon-blue' : 'bg-bg-dark text-text-muted'}`}
             >
-              {debugSettings.isSimulating ? 'ON' : 'OFF'}
+              {debugSettings.addingParticipants ? 'ON' : 'OFF'}
             </button>
           </div>
 
@@ -559,23 +591,24 @@ export default function DashboardPage() {
             <span className="text-text-muted text-xs">Speed (ms)</span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setDebugSettings(s => ({ ...s, simulationSpeed: Math.min(2000, s.simulationSpeed + 100) }))}
+                onClick={() => setDebugSettings(s => ({ ...s, simulationSpeed: Math.min(2000, s.simulationSpeed + 200) }))}
                 className="px-2 py-1 text-xs bg-bg-dark hover:bg-neon-blue/20"
               >
-                -
+                ◀
               </button>
               <span className="w-12 text-center">{debugSettings.simulationSpeed}</span>
               <button
-                onClick={() => setDebugSettings(s => ({ ...s, simulationSpeed: Math.max(100, s.simulationSpeed - 100) }))}
+                onClick={() => setDebugSettings(s => ({ ...s, simulationSpeed: Math.max(200, s.simulationSpeed - 200) }))}
                 className="px-2 py-1 text-xs bg-bg-dark hover:bg-neon-blue/20"
               >
-                +
+                ▶
               </button>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-warning/30 text-text-muted text-xs">
-            {participantCount} participants
+          <div className="pt-2 border-t border-warning/30 text-text-muted text-xs flex justify-between">
+            <span>{participantCount} users</span>
+            <span>{session?.stats?.totalChoicesMade || 0} swipes</span>
           </div>
         </div>
       )}
