@@ -106,7 +106,7 @@ export default function JoinPage() {
         timestamp: Date.now(),
       };
 
-      setChoices((prev) => [...prev, choice]);
+      setChoices((prev: Choice[]) => [...prev, choice]);
 
       // Record to Firebase
       try {

@@ -69,7 +69,7 @@ export default function DashboardPage() {
 
     const updateStats = async () => {
       const participants = session.participants || {};
-      const participantList = Object.values(participants);
+      const participantList = Object.values(participants) as Participant[];
 
       if (participantList.length < 2) return;
 
@@ -106,7 +106,7 @@ export default function DashboardPage() {
 
     if (session.gameState === 'playing') {
       timerRef.current = setInterval(() => {
-        setTimeRemaining((prev) => {
+        setTimeRemaining((prev: number) => {
           if (prev <= 1) {
             // Timer ended - trigger reveal
             handleReveal();
@@ -183,7 +183,7 @@ export default function DashboardPage() {
 
     // Calculate final stats and clusters
     if (session?.participants) {
-      const participantList = Object.values(session.participants);
+      const participantList = Object.values(session.participants) as Participant[];
       const detectedClusters = detectClusters(session.participants, 0.4);
       setClusters(detectedClusters);
 
@@ -216,7 +216,7 @@ export default function DashboardPage() {
   }
 
   const participants = session.participants || {};
-  const participantList = Object.values(participants);
+  const participantList = Object.values(participants) as Participant[];
   const participantCount = participantList.filter((p) => p.isActive !== false).length;
   const totalChoices = calculateTotalChoices(participants);
   const avgProgress = calculateAverageProgress(
