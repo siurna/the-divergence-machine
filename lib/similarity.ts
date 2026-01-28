@@ -35,22 +35,20 @@ export const categoryPositions: CategoryPositions = {
 
 // Build choice vector for a participant
 // Vector where: 1 = liked, -0.5 = skipped, 0 = not seen
-export function buildChoiceVector(choices: Choice[], allContentIds: string[]): number[] {
+export function buildChoiceVector(
+  choices: Choice[] | Record<string, Choice> | undefined,
+  allContentIds: string[]
+): number[] {
   const vector = new Array(allContentIds.length).fill(0);
 
-  if (!choices || !Array.isArray(choices)) {
-    // Handle Firebase object format
-    const choiceArray = choices ? Object.values(choices) : [];
-    for (const choice of choiceArray) {
-      const index = allContentIds.indexOf(choice.contentId);
-      if (index !== -1) {
-        vector[index] = choice.action === 'like' ? 1 : -0.5;
-      }
-    }
-    return vector;
-  }
+  if (!choices) return vector;
 
-  for (const choice of choices) {
+  // Handle both array and Firebase object format
+  const choiceArray: Choice[] = Array.isArray(choices)
+    ? choices
+    : Object.values(choices);
+
+  for (const choice of choiceArray) {
     const index = allContentIds.indexOf(choice.contentId);
     if (index !== -1) {
       vector[index] = choice.action === 'like' ? 1 : -0.5;
