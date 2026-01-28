@@ -44,8 +44,8 @@ export default function DashboardPage() {
   // Debug mode controls
   const [debugSettings, setDebugSettings] = useState({
     maxParticipants: 30,
-    simulationSpeed: 800,
-    isSimulating: false, // Start paused - user must click to start
+    simulationSpeed: 600,
+    isSimulating: true, // Auto-start when game starts
     addingParticipants: true,
   });
   const participantCountRef = useRef(0); // Track count to avoid race conditions
@@ -77,7 +77,10 @@ export default function DashboardPage() {
 
   // Debug mode - simulate random participants
   useEffect(() => {
-    if (!isDebugMode || !session || session.gameState !== 'playing' || !debugSettings.isSimulating) {
+    // Run in waiting (to add users) or playing (to add users + make choices)
+    const isActiveState = session?.gameState === 'waiting' || session?.gameState === 'playing';
+
+    if (!isDebugMode || !session || !isActiveState || !debugSettings.isSimulating) {
       if (debugRef.current) {
         clearInterval(debugRef.current);
         debugRef.current = null;
@@ -100,6 +103,9 @@ export default function DashboardPage() {
           await addParticipant(sessionId, randomName);
         }
       }
+
+      // Only make choices when game is actually playing
+      if (session.gameState !== 'playing') return;
 
       // Make choices for existing participants based on their personality
       const participantArray = Object.values(participants);
@@ -433,7 +439,7 @@ export default function DashboardPage() {
     <div className="h-screen bg-bg-dark cyber-grid overflow-hidden flex flex-col relative">
       {/* Site URL */}
       <div className="absolute top-4 left-4 z-20">
-        <span className="site-url text-text-muted font-mono">makeyourownbubble.com</span>
+        <span className="site-url-large text-neon-blue font-mono">makeyourownbubble.com</span>
       </div>
 
       {/* Status header */}
