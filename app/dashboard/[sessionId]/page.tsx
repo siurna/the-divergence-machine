@@ -51,6 +51,12 @@ export default function DashboardPage() {
   const addedCountRef = useRef(0); // Track how many we've added (never resets)
   const personalitiesRef = useRef<Record<string, string[]>>({}); // Store participant "personalities"
   const processIndexRef = useRef(0); // Rotate through participants
+  const sessionRef = useRef<Session | null>(null); // Always have fresh session data
+
+  // Keep sessionRef updated
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // Subscribe to session data
   useEffect(() => {
@@ -90,11 +96,13 @@ export default function DashboardPage() {
     }
 
     const simulateParticipants = async () => {
-      const participants = session.participants || {};
-      const currentCount = Object.keys(participants).length;
+      // IMPORTANT: Use ref to get fresh session data, not stale closure
+      const currentSession = sessionRef.current;
+      if (!currentSession) return;
+
+      const participants = currentSession.participants || {};
 
       // Add participants only if we haven't added enough yet
-      // Use addedCountRef to track independently of Firebase lag
       if (debugSettings.addingParticipants && addedCountRef.current < debugSettings.maxParticipants) {
         addedCountRef.current++;
         const names = ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Quinn', 'Avery', 'Parker', 'Jamie', 'Drew', 'Blake', 'Reese', 'Skyler', 'Devon', 'Hayden', 'Emery', 'Rowan', 'Sage'];
@@ -103,23 +111,17 @@ export default function DashboardPage() {
       }
 
       // Only make choices when game is actually playing
-      if (session.gameState !== 'playing') return;
+      if (currentSession.gameState !== 'playing') return;
 
-      // Make choices for ALL participants, rotating through them
+      // Make choices for ALL participants
       const participantArray = Object.values(participants);
       if (participantArray.length === 0) return;
 
-      // Process a batch starting from rotating index (so everyone gets a turn)
-      const batchSize = Math.min(10, participantArray.length);
-      const startIdx = processIndexRef.current % participantArray.length;
-      processIndexRef.current = (processIndexRef.current + batchSize) % Math.max(1, participantArray.length);
-
-      for (let i = 0; i < batchSize; i++) {
-        const idx = (startIdx + i) % participantArray.length;
-        const participant = participantArray[idx];
-
+      // Process ALL participants each tick (not just a batch) to ensure everyone moves
+      for (const participant of participantArray) {
         const choices = participant.choices ? Object.values(participant.choices) : [];
-        // Everyone makes a choice if they haven't finished
+
+        // Everyone makes a choice if they haven't finished (no random skip!)
         if (choices.length < 40) {
           const personality = getOrAssignPersonality(participant.odId);
           const unseenContent = contentPool.filter(
@@ -131,7 +133,6 @@ export default function DashboardPage() {
             const contentCategory = randomContent.category.split('_')[0];
 
             // Like probability based on personality match
-            // 85% like if matches personality, 15% like if doesn't
             const matchesPersonality = personality.includes(contentCategory);
             const likeChance = matchesPersonality ? 0.85 : 0.15;
 
