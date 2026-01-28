@@ -303,7 +303,7 @@ export default function DashboardPage() {
               <div className="h-[500px] md:h-[600px]">
                 <MainVisualization
                   participants={participants}
-                  showClusters={session.gameState === 'reveal'}
+                  showClusters={false}
                   clusters={clusters}
                 />
               </div>
