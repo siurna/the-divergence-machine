@@ -1,192 +1,277 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { JoinScreen } from '@/components/phone/JoinScreen';
-import { WaitingScreen } from '@/components/phone/WaitingScreen';
-import { CardSwiper } from '@/components/phone/CardSwiper';
-import { CompleteScreen } from '@/components/phone/CompleteScreen';
+import { motion, PanInfo } from 'framer-motion';
 import {
-  subscribeToGameState,
-  subscribeToParticipantCount,
+  sessionExists,
   addParticipant,
   recordChoice,
-  sessionExists,
+  subscribeToGameState,
+  subscribeToParticipantCount,
 } from '@/lib/firebase';
-import { generateContentQueue } from '@/lib/content';
-import { getTopCategories } from '@/lib/similarity';
-import { GameState, ContentItem, Choice, Participant } from '@/types';
+import { generateContentQueue, getCategoryGroup, getCategoryColor } from '@/lib/content';
+import { ContentItem, Choice, GameState } from '@/types';
 
-type Screen = 'join' | 'waiting' | 'playing' | 'complete' | 'error';
+type Screen = 'join' | 'waiting' | 'playing' | 'complete';
 
 export default function JoinPage() {
   const params = useParams();
   const sessionId = params.sessionId as string;
 
   const [screen, setScreen] = useState<Screen>('join');
+  const [name, setName] = useState('');
+  const [odId, setOdId] = useState('');
   const [gameState, setGameState] = useState<GameState>('waiting');
   const [participantCount, setParticipantCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  // Participant state
-  const [odId, setOdId] = useState<string>('');
-  const [name, setName] = useState<string>('');
   const [contentQueue, setContentQueue] = useState<ContentItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [choices, setChoices] = useState<Choice[]>([]);
+  const [error, setError] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
 
-  // Check if session exists on mount
+  // Generate content queue on mount
   useEffect(() => {
-    const checkSession = async () => {
-      const exists = await sessionExists(sessionId);
-      if (!exists) {
-        setErrorMessage('Session not found. Please check the code and try again.');
-        setScreen('error');
-      }
-    };
-    checkSession();
-  }, [sessionId]);
+    setContentQueue(generateContentQueue(40));
+  }, []);
 
-  // Subscribe to game state and participant count
+  // Subscribe to game state
   useEffect(() => {
-    if (screen === 'error') return;
-
-    const unsubGameState = subscribeToGameState(sessionId, (state) => {
+    if (!odId) return;
+    const unsubscribe = subscribeToGameState(sessionId, (state) => {
       setGameState(state);
-
-      // Transition screens based on game state
       if (state === 'playing' && screen === 'waiting') {
         setScreen('playing');
       }
-    });
-
-    const unsubCount = subscribeToParticipantCount(sessionId, setParticipantCount);
-
-    return () => {
-      unsubGameState();
-      unsubCount();
-    };
-  }, [sessionId, screen]);
-
-  // Handle joining
-  const handleJoin = useCallback(
-    async (playerName: string) => {
-      setIsLoading(true);
-      try {
-        const participantId = await addParticipant(sessionId, playerName);
-        setOdId(participantId);
-        setName(playerName);
-
-        // Generate content queue
-        const queue = generateContentQueue(40);
-        setContentQueue(queue);
-
-        // If game is already playing, go directly to playing
-        if (gameState === 'playing') {
-          setScreen('playing');
-        } else {
-          setScreen('waiting');
-        }
-      } catch (error) {
-        console.error('Failed to join:', error);
-        setErrorMessage('Failed to join session. Please try again.');
-      } finally {
-        setIsLoading(false);
+      if ((state === 'reveal' || state === 'ended') && screen === 'playing') {
+        setScreen('complete');
       }
-    },
-    [sessionId, gameState]
-  );
+    });
+    return () => unsubscribe();
+  }, [sessionId, odId, screen]);
 
-  // Handle choice
+  // Subscribe to participant count
+  useEffect(() => {
+    const unsubscribe = subscribeToParticipantCount(sessionId, setParticipantCount);
+    return () => unsubscribe();
+  }, [sessionId]);
+
+  const handleJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || name.length < 2) return;
+
+    setIsJoining(true);
+    setError('');
+
+    try {
+      const exists = await sessionExists(sessionId);
+      if (!exists) {
+        setError('Session not found');
+        setIsJoining(false);
+        return;
+      }
+      const participantId = await addParticipant(sessionId, name.trim());
+      setOdId(participantId);
+      setScreen('waiting');
+    } catch (err) {
+      setError('Failed to join');
+      console.error(err);
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const handleChoice = useCallback(
-    async (contentId: string, action: 'like' | 'skip') => {
-      const choice: Choice = {
-        contentId,
-        action,
-        timestamp: Date.now(),
-      };
+    async (action: 'like' | 'skip') => {
+      if (currentIndex >= contentQueue.length) return;
+
+      const content = contentQueue[currentIndex];
+      const choice: Choice = { contentId: content.id, action, timestamp: Date.now() };
 
       setChoices((prev: Choice[]) => [...prev, choice]);
+      setCurrentIndex((prev) => prev + 1);
 
-      // Record to Firebase
       try {
         await recordChoice(sessionId, odId, choice);
       } catch (error) {
-        console.error('Failed to record choice:', error);
+        console.error('Failed to record:', error);
+      }
+
+      if (currentIndex >= contentQueue.length - 1) {
+        setScreen('complete');
       }
     },
-    [sessionId, odId]
+    [sessionId, odId, currentIndex, contentQueue]
   );
 
-  // Handle completion
-  const handleComplete = useCallback(() => {
-    setScreen('complete');
-  }, []);
+  const topCategories = useMemo(() => {
+    const categoryCount: Record<string, number> = {};
+    for (const choice of choices.filter((c) => c.action === 'like')) {
+      const content = contentQueue.find((c) => c.id === choice.contentId);
+      if (content) {
+        const group = getCategoryGroup(content.category);
+        categoryCount[group] = (categoryCount[group] || 0) + 1;
+      }
+    }
+    return Object.entries(categoryCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([cat]) => cat);
+  }, [choices, contentQueue]);
 
-  // Get top categories for complete screen
-  const getTopCats = (): string[] => {
-    const mockParticipant: Participant = {
-      odId,
-      name,
-      joinedAt: Date.now(),
-      choices,
-      currentCardIndex: choices.length,
-      position: { x: 50, y: 50 },
-      isActive: true,
-    };
-    return getTopCategories(mockParticipant);
+  const categoryInfo: Record<string, { name: string; emoji: string }> = {
+    politics: { name: 'Politics', emoji: '📰' },
+    tech: { name: 'Technology', emoji: '💻' },
+    entertainment: { name: 'Entertainment', emoji: '🎬' },
+    science: { name: 'Science', emoji: '🔬' },
+    sports: { name: 'Sports', emoji: '⚽' },
+    lifestyle: { name: 'Lifestyle', emoji: '✨' },
+    finance: { name: 'Finance', emoji: '💰' },
+    animals: { name: 'Animals', emoji: '🐾' },
   };
 
-  // Error screen
-  if (screen === 'error') {
+  // JOIN
+  if (screen === 'join') {
     return (
-      <div className="min-h-screen bg-bg-dark flex flex-col items-center justify-center p-6">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-danger mb-4">Oops!</h2>
-          <p className="text-text-muted mb-6">{errorMessage}</p>
-          <a
-            href="/"
-            className="inline-block px-6 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary-dark transition-colors"
-          >
-            Go Back
-          </a>
+      <div className="min-h-screen bg-bg-dark cyber-grid flex flex-col items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-sm text-center">
+          <h1 className="text-3xl font-black mb-2"><span className="text-glow-cyan text-neon-blue">MAKE YOUR OWN</span></h1>
+          <h1 className="text-3xl font-black mb-8"><span className="text-glow-pink text-neon-pink">BUBBLE</span></h1>
+          <form onSubmit={handleJoin} className="space-y-4">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
+              maxLength={15}
+              className="w-full px-6 py-4 bg-bg-card border-2 border-neon-blue/50 text-white placeholder-text-muted text-xl text-center focus:outline-none focus:border-neon-blue"
+              autoFocus
+            />
+            {error && <p className="text-danger text-sm">{error}</p>}
+            <button
+              type="submit"
+              disabled={!name.trim() || name.length < 2 || isJoining}
+              className={`w-full py-4 font-bold text-xl uppercase tracking-wider ${name.trim().length >= 2 ? 'bg-gradient-to-r from-neon-blue to-neon-pink text-white' : 'bg-bg-card text-text-muted cursor-not-allowed'}`}
+            >
+              {isJoining ? 'JOINING...' : '[ JOIN ]'}
+            </button>
+          </form>
+          <p className="mt-8 text-text-muted font-mono text-sm">Session: {sessionId}</p>
+          <p className="text-text-muted text-sm">{participantCount} waiting</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // WAITING
+  if (screen === 'waiting') {
+    return (
+      <div className="min-h-screen bg-bg-dark cyber-grid flex flex-col items-center justify-center p-6">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+          <div className="w-20 h-20 border-4 border-neon-blue border-t-transparent rounded-full animate-spin mx-auto mb-8" />
+          <h2 className="text-2xl font-bold text-neon-green text-glow-green mb-2">YOU'RE IN, {name.toUpperCase()}!</h2>
+          <p className="text-text-muted text-lg mb-8">Waiting for game to start...</p>
+          <p className="text-neon-pink text-4xl font-bold mb-2">{participantCount}</p>
+          <p className="text-text-muted">players ready</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // PLAYING
+  if (screen === 'playing' && currentIndex < contentQueue.length) {
+    const currentCard = contentQueue[currentIndex];
+    const progress = ((currentIndex + 1) / contentQueue.length) * 100;
+    const categoryColor = getCategoryColor(getCategoryGroup(currentCard.category));
+
+    return (
+      <div className="min-h-screen bg-bg-dark flex flex-col">
+        <div className="h-2 bg-bg-card">
+          <motion.div className="h-full bg-gradient-to-r from-neon-blue to-neon-pink" animate={{ width: `${progress}%` }} />
+        </div>
+        <div className="p-4 text-center text-text-muted font-mono text-sm">{currentIndex + 1} / {contentQueue.length}</div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <SwipeableCard key={currentCard.id} content={currentCard} categoryColor={categoryColor} onSwipe={handleChoice} />
+        </div>
+        <div className="p-6 flex gap-4">
+          <button onClick={() => handleChoice('skip')} className="flex-1 py-4 bg-danger/20 border-2 border-danger text-danger font-bold text-xl uppercase active:bg-danger active:text-black">SKIP</button>
+          <button onClick={() => handleChoice('like')} className="flex-1 py-4 bg-neon-green/20 border-2 border-neon-green text-neon-green font-bold text-xl uppercase active:bg-neon-green active:text-black">LIKE</button>
         </div>
       </div>
     );
   }
 
-  // Render current screen
-  switch (screen) {
-    case 'join':
-      return (
-        <JoinScreen
-          sessionId={sessionId}
-          participantCount={participantCount}
-          onJoin={handleJoin}
-          isLoading={isLoading}
-        />
-      );
+  // COMPLETE
+  return (
+    <div className="min-h-screen bg-bg-dark cyber-grid flex flex-col items-center justify-center p-6">
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-sm">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', delay: 0.2 }}
+          className="w-20 h-20 bg-neon-green rounded-full flex items-center justify-center mx-auto mb-6"
+          style={{ boxShadow: '0 0 30px #39FF14' }}
+        >
+          <svg className="w-10 h-10 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        </motion.div>
+        <h2 className="text-3xl font-black text-white mb-4">ALL DONE!</h2>
+        <p className="text-xl text-text-muted mb-8">You rated <span className="text-neon-blue font-bold">{choices.length}</span> headlines</p>
+        <div className="bg-bg-card/50 border border-neon-pink/30 p-6 mb-8">
+          <h3 className="text-neon-pink text-sm font-mono uppercase tracking-wider mb-4">YOUR BUBBLE</h3>
+          {topCategories.length > 0 ? (
+            <div className="space-y-3">
+              {topCategories.map((cat, index) => {
+                const info = categoryInfo[cat];
+                const color = getCategoryColor(cat);
+                return (
+                  <motion.div
+                    key={cat}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.5 + index * 0.1 }}
+                    className="flex items-center gap-3 p-3"
+                    style={{ backgroundColor: `${color}20`, borderLeft: `3px solid ${color}` }}
+                  >
+                    <span className="text-2xl">{info?.emoji}</span>
+                    <span className="text-white font-medium">{info?.name || cat}</span>
+                    {index === 0 && <span className="ml-auto text-xs font-mono" style={{ color }}>TOP</span>}
+                  </motion.div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-text-muted">No clear preferences</p>
+          )}
+        </div>
+        <p className="text-text-muted">Look at the screen to see everyone's bubbles!</p>
+      </motion.div>
+    </div>
+  );
+}
 
-    case 'waiting':
-      return (
-        <WaitingScreen name={name} participantCount={participantCount} />
-      );
-
-    case 'playing':
-      return (
-        <CardSwiper
-          content={contentQueue}
-          onChoice={handleChoice}
-          onComplete={handleComplete}
-        />
-      );
-
-    case 'complete':
-      return (
-        <CompleteScreen totalRated={choices.length} topCategories={getTopCats()} />
-      );
-
-    default:
-      return null;
-  }
+function SwipeableCard({ content, categoryColor, onSwipe }: { content: ContentItem; categoryColor: string; onSwipe: (action: 'like' | 'skip') => void }) {
+  const [dragX, setDragX] = useState(0);
+  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (info.offset.x > 100) onSwipe('like');
+    else if (info.offset.x < -100) onSwipe('skip');
+    setDragX(0);
+  };
+  return (
+    <motion.div
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      onDrag={(e, info) => setDragX(info.offset.x)}
+      onDragEnd={handleDragEnd}
+      animate={{ rotate: dragX * 0.1 }}
+      className="w-full max-w-sm cursor-grab active:cursor-grabbing"
+    >
+      <div className="relative p-6 min-h-[300px] flex flex-col justify-center" style={{ backgroundColor: '#12121A', borderLeft: `4px solid ${categoryColor}`, boxShadow: `0 0 30px ${categoryColor}30` }}>
+        <div className="absolute top-4 right-4 px-4 py-2 border-2 border-neon-green text-neon-green font-bold rotate-12 text-xl" style={{ opacity: Math.max(0, dragX / 150) }}>LIKE</div>
+        <div className="absolute top-4 left-4 px-4 py-2 border-2 border-danger text-danger font-bold -rotate-12 text-xl" style={{ opacity: Math.max(0, -dragX / 150) }}>SKIP</div>
+        <p className="text-xl md:text-2xl text-white font-medium leading-relaxed">"{content.headline}"</p>
+      </div>
+    </motion.div>
+  );
 }
