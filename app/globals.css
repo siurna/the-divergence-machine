@@ -63,17 +63,17 @@ body {
   opacity: 0.3;
 }
 
-/* Glowing text effects */
+/* Glowing text effects - subtle for readability */
 .text-glow-cyan {
-  text-shadow: 0 0 10px var(--color-neon-blue), 0 0 20px var(--color-neon-blue), 0 0 40px var(--color-neon-blue);
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6), 0 0 16px rgba(0, 240, 255, 0.3);
 }
 
 .text-glow-pink {
-  text-shadow: 0 0 10px var(--color-neon-pink), 0 0 20px var(--color-neon-pink), 0 0 40px var(--color-neon-pink);
+  text-shadow: 0 0 8px rgba(255, 0, 229, 0.6), 0 0 16px rgba(255, 0, 229, 0.3);
 }
 
 .text-glow-green {
-  text-shadow: 0 0 10px var(--color-neon-green), 0 0 20px var(--color-neon-green), 0 0 40px var(--color-neon-green);
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.6), 0 0 16px rgba(57, 255, 20, 0.3);
 }
 
 /* Neon box effects */
@@ -316,3 +316,47 @@ body {
 .cat-lifestyle { --cat-color: #BF00FF; }
 .cat-finance { --cat-color: #FFE500; }
 .cat-animals { --cat-color: #FF8800; }
+
+/* Cluster visualization */
+@keyframes cluster-pulse {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(1.02);
+  }
+}
+
+.cluster-blob {
+  animation: cluster-pulse 3s ease-in-out infinite;
+}
+
+/* Dispersing particles animation */
+@keyframes disperse {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--disperse-x), var(--disperse-y)) scale(0.3);
+    opacity: 0;
+  }
+}
+
+.disperse-particle {
+  animation: disperse 2s ease-out forwards;
+}
+
+/* Site URL subtle styling */
+.site-url {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.site-url:hover {
+  opacity: 0.8;
+}
