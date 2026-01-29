@@ -370,25 +370,7 @@ export default function DashboardPage() {
     const biggestBubble = Object.entries(bubbleCounts).sort((a, b) => b[1] - a[1])[0];
     const biggestBubblePct = biggestBubble ? Math.round((biggestBubble[1] / personProfiles.length) * 100) : 0;
 
-    // 5. Content uniqueness — what % of each person's feed was NOT shared with anyone else
-    const allSeenSets = participantList.map((p) => {
-      const choices = p.choices ? Object.values(p.choices) : [];
-      return new Set(choices.filter((c: Choice) => c.action === 'like').map((c: Choice) => c.contentId));
-    });
-    let totalUniquePct = 0;
-    for (let i = 0; i < allSeenSets.length; i++) {
-      const myLikes = allSeenSets[i];
-      if (myLikes.size === 0) continue;
-      let uniqueToMe = 0;
-      for (const id of myLikes) {
-        const sharedWith = allSeenSets.filter((s, j) => j !== i && s.has(id)).length;
-        if (sharedWith === 0) uniqueToMe++;
-      }
-      totalUniquePct += uniqueToMe / myLikes.size;
-    }
-    const avgUniquePct = allSeenSets.length > 0 ? Math.round((totalUniquePct / allSeenSets.length) * 100) : 0;
-
-    // 6. The Narrowing — compare category diversity of first half vs second half of choices
+    // 5. The Narrowing — compare category diversity of first half vs second half of choices
     let avgFirstHalfCats = 0, avgSecondHalfCats = 0;
     const profilesWithEnoughData = personProfiles.filter(p => p.totalChoices >= 10);
     for (const p of profilesWithEnoughData) {
@@ -414,100 +396,67 @@ export default function DashboardPage() {
     avgFirstHalfCats = Math.round((avgFirstHalfCats / numProfiles) * 10) / 10;
     avgSecondHalfCats = Math.round((avgSecondHalfCats / numProfiles) * 10) / 10;
 
-    // 7. Zero in Common — pairs with literally zero shared liked content
-    let zeroPairs = 0, totalPairs = 0;
-    for (let i = 0; i < allSeenSets.length; i++) {
-      for (let j = i + 1; j < allSeenSets.length; j++) {
-        totalPairs++;
-        let shared = false;
-        for (const id of allSeenSets[i]) {
-          if (allSeenSets[j].has(id)) { shared = true; break; }
-        }
-        if (!shared && allSeenSets[i].size > 0 && allSeenSets[j].size > 0) zeroPairs++;
-      }
-    }
-    const zeroPairsPct = totalPairs > 0 ? Math.round((zeroPairs / totalPairs) * 100) : 0;
-
-    // 8. Most Free — person who escaped the bubble most (most diverse)
+    // 6. Most Free — person who escaped the bubble most (most diverse)
     const mostFree = [...personProfiles].filter(p => p.totalLikes > 3).sort((a, b) => a.concentration - b.concentration)[0];
 
-    // 9. The Rabbit Hole — what % of the last 10 cards were from a person's #1 category (avg)
-    let rabbitHoleAvg = 0;
-    const rabbitHoleProfiles = personProfiles.filter(p => p.totalChoices >= 15);
-    for (const p of rabbitHoleProfiles) {
-      const choices = Object.values(participantList.find(pp => pp.odId === p.odId)?.choices || {}) as Choice[];
-      const lastN = choices.slice(-10);
-      const lastLikes = lastN.filter((c: Choice) => c.action === 'like');
-      const topInLast = lastLikes.filter((c: Choice) => {
-        const ct = contentPool.find(item => item.id === c.contentId);
-        return ct ? ct.category.split('_')[0] === p.topCat : false;
-      }).length;
-      rabbitHoleAvg += lastN.length > 0 ? topInLast / lastN.length : 0;
-    }
-    rabbitHoleAvg = rabbitHoleProfiles.length > 0 ? Math.round((rabbitHoleAvg / rabbitHoleProfiles.length) * 100) : 0;
+    // Category color mapping for cluster badges
+    const categoryColorMap: Record<string, { bg: string; text: string; border: string; glow: string }> = {
+      politics: { bg: 'bg-[#FF0055]/15', text: 'text-[#FF0055]', border: 'border-[#FF0055]/40', glow: '0 0 20px #FF005540' },
+      tech: { bg: 'bg-[#00F0FF]/15', text: 'text-[#00F0FF]', border: 'border-[#00F0FF]/40', glow: '0 0 20px #00F0FF40' },
+      entertainment: { bg: 'bg-[#FF00E5]/15', text: 'text-[#FF00E5]', border: 'border-[#FF00E5]/40', glow: '0 0 20px #FF00E540' },
+      science: { bg: 'bg-[#39FF14]/15', text: 'text-[#39FF14]', border: 'border-[#39FF14]/40', glow: '0 0 20px #39FF1440' },
+      sports: { bg: 'bg-[#FF6B00]/15', text: 'text-[#FF6B00]', border: 'border-[#FF6B00]/40', glow: '0 0 20px #FF6B0040' },
+      lifestyle: { bg: 'bg-[#BF00FF]/15', text: 'text-[#BF00FF]', border: 'border-[#BF00FF]/40', glow: '0 0 20px #BF00FF40' },
+      finance: { bg: 'bg-[#FFE500]/15', text: 'text-[#FFE500]', border: 'border-[#FFE500]/40', glow: '0 0 20px #FFE50040' },
+      animals: { bg: 'bg-[#FF8800]/15', text: 'text-[#FF8800]', border: 'border-[#FF8800]/40', glow: '0 0 20px #FF880040' },
+    };
 
     const insights = [
       {
         label: 'DEEPEST BUBBLE',
         value: mostTrapped?.name || '—',
         desc: `${mostTrapped?.concentration || 0}% of their feed was ${mostTrapped?.topCat || '?'}`,
-        color: 'text-neon-pink',
+        accent: '#FF0055',
       },
       {
         label: 'MOST FREE',
         value: mostFree?.name || '—',
-        desc: mostFree ? `Only ${mostFree.concentration}% in one topic — resisted the algorithm` : '',
-        color: 'text-neon-green',
+        desc: mostFree ? `Only ${mostFree.concentration}% in one topic` : 'Nobody escaped',
+        accent: '#39FF14',
       },
       {
         label: 'WORLDS APART',
         value: worldsApartA && worldsApartB ? `${worldsApartA} & ${worldsApartB}` : '—',
-        desc: 'Same app, different universe',
-        color: 'text-neon-blue',
+        desc: 'Same app, completely different reality',
+        accent: '#00F0FF',
       },
       {
         label: 'THE NARROWING',
-        value: `${avgFirstHalfCats} → ${avgSecondHalfCats} topics`,
-        desc: 'Category diversity: first half vs last half of your feed',
-        color: 'text-warning',
+        value: `${avgFirstHalfCats} → ${avgSecondHalfCats}`,
+        desc: 'Topics seen: start vs end of feed',
+        accent: '#FF6B00',
       },
       {
         label: 'BIGGEST BUBBLE',
         value: biggestBubble ? biggestBubble[0] : '—',
-        desc: biggestBubble ? `${biggestBubblePct}% of the room got trapped here` : '',
-        color: 'text-neon-pink',
+        desc: biggestBubble ? `${biggestBubblePct}% of the room trapped here` : '',
+        accent: '#BF00FF',
       },
       {
         label: 'INVISIBLE TOPICS',
         value: `${avgCatsMissed} of 8`,
-        desc: 'Categories the average person never even saw',
-        color: 'text-neon-green',
-      },
-      {
-        label: 'ZERO IN COMMON',
-        value: `${zeroPairsPct}%`,
-        desc: `of people pairs shared no liked content at all`,
-        color: 'text-neon-blue',
-      },
-      {
-        label: 'THE RABBIT HOLE',
-        value: `${rabbitHoleAvg}%`,
-        desc: 'of your last 10 cards were your #1 topic',
-        color: 'text-warning',
-      },
-      {
-        label: 'YOUR FEED WAS UNIQUE',
-        value: `${avgUniquePct}%`,
-        desc: 'of liked content was seen by nobody else',
-        color: 'text-neon-pink',
+        desc: 'Categories the average person never saw',
+        accent: '#FFE500',
       },
     ];
 
     return (
-      <div className="h-screen bg-bg-dark cyber-grid overflow-hidden flex flex-col relative">
-        {/* Site URL */}
-        <div className="absolute top-4 left-4 z-20">
-          <span className="site-url-large text-neon-blue font-mono">makeyourownbubble.com</span>
+      <div className="h-screen bg-bg-dark overflow-hidden flex flex-col relative">
+        {/* Ambient background glow */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-[#FF0055]/8 rounded-full blur-[120px]" />
+          <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-[#00F0FF]/8 rounded-full blur-[120px]" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-[#BF00FF]/5 rounded-full blur-[150px]" />
         </div>
 
         {/* Dispersing particles animation */}
@@ -515,10 +464,10 @@ export default function DashboardPage() {
           {particles.map((particle) => (
             <motion.div
               key={particle.id}
-              className="absolute w-8 h-10 rounded bg-gradient-to-b from-white/20 to-transparent"
-              style={{ backgroundColor: particle.color, boxShadow: `0 0 10px ${particle.color}` }}
+              className="absolute w-8 h-10 rounded"
+              style={{ backgroundColor: particle.color, boxShadow: `0 0 15px ${particle.color}` }}
               initial={{ x: 0, y: 0, opacity: 0, scale: 1, rotate: 0 }}
-              animate={{ x: particle.x, y: particle.y, opacity: [0, 1, 1, 0], scale: [1, 1, 0.5, 0], rotate: (Math.random() - 0.5) * 180 }}
+              animate={{ x: particle.x, y: particle.y, opacity: [0, 1, 1, 0], scale: [1, 1.2, 0.5, 0], rotate: (Math.random() - 0.5) * 180 }}
               transition={{ duration: 2.5, delay: 0.5 + particle.delay, ease: 'easeOut' }}
             />
           ))}
@@ -533,76 +482,156 @@ export default function DashboardPage() {
           style={{ pointerEvents: 'none' }}
         >
           <div className="text-center">
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-3">
-              <p className="text-text-muted text-xl mb-1">Shared reality started at</p>
-              <p className="text-7xl font-black text-glow-green text-neon-green">100%</p>
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-4">
+              <p className="text-text-muted text-2xl mb-2 font-mono uppercase tracking-wider">Shared reality started at</p>
+              <p className="text-[120px] leading-none font-black text-glow-green text-neon-green">100%</p>
             </motion.div>
 
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.0 }} className="text-3xl text-text-muted mb-3">
+            <motion.div initial={{ opacity: 0, scaleY: 0 }} animate={{ opacity: 1, scaleY: 1 }} transition={{ delay: 0.8, duration: 0.5 }} className="text-4xl text-text-muted mb-4">
               ↓
             </motion.div>
 
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.5 }}>
-              <p className="text-text-muted text-xl mb-1">Now it&apos;s</p>
-              <p className={`text-8xl font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
+              <p className="text-text-muted text-2xl mb-2 font-mono uppercase tracking-wider">Now it&apos;s</p>
+              <p className={`text-[150px] leading-none font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
                 {sharedReality}%
               </p>
             </motion.div>
 
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-6 text-xl text-text-muted">
-              <span className="text-neon-blue">{participantCount}</span> people &rarr; <span className="text-neon-pink">{clusters.length}</span> bubbles
-            </motion.p>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-8 flex items-center justify-center gap-6 text-2xl">
+              <span className="text-text-muted font-mono">
+                <span className="text-neon-blue font-bold">{participantCount}</span> people
+              </span>
+              <span className="text-text-muted">→</span>
+              <span className="text-text-muted font-mono">
+                <span className="text-neon-pink font-bold">{clusters.length}</span> {clusters.length === 1 ? 'bubble' : 'bubbles'}
+              </span>
+            </motion.div>
           </div>
         </motion.div>
 
-        {/* Phase 2: Full-width insights grid — fades in after percentage */}
+        {/* Phase 2: Projector-optimized reveal — big, bold, colorful */}
         <motion.div
           className="flex-1 flex flex-col relative z-15"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 4.3, duration: 0.6 }}
         >
-          {/* Compact header */}
-          <div className="pt-6 pb-4 text-center">
-            <h1 className="text-3xl font-black text-glow-cyan uppercase tracking-wider">The Algorithm&apos;s Effect</h1>
-            <p className="text-text-muted text-sm mt-1 font-mono">
-              {participantCount} people &middot; {clusters.length} bubbles &middot; {sharedReality}% shared reality
-            </p>
-          </div>
+          {/* Header */}
+          <motion.div
+            className="pt-6 pb-2 text-center"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 4.5, duration: 0.5 }}
+          >
+            <h1 className="text-5xl font-black uppercase tracking-wider">
+              <span className="text-glow-cyan text-white">WHAT THE ALGORITHM DID</span>
+            </h1>
+            <div className="flex items-center justify-center gap-4 mt-3">
+              <span className="text-xl font-mono text-neon-blue">{participantCount} people</span>
+              <span className="text-xl text-text-muted">→</span>
+              <span className="text-xl font-mono text-neon-pink">{clusters.length} bubbles</span>
+              <span className="text-xl text-text-muted">→</span>
+              <span className={`text-xl font-mono font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
+                {sharedReality}% shared reality
+              </span>
+            </div>
+          </motion.div>
 
-          {/* Insights grid */}
-          <div className="flex-1 flex items-start justify-center px-8 pb-4 overflow-y-auto">
-            <div className="grid grid-cols-3 gap-4 max-w-5xl w-full">
-              {insights.map((insight, idx) => (
+          {/* Insight cards — 2×3 grid, large and colorful */}
+          <div className="flex-1 flex items-center justify-center px-8">
+            <div className="w-full max-w-7xl">
+              <div className="grid grid-cols-3 gap-5">
+                {insights.map((insight, idx) => (
+                  <motion.div
+                    key={insight.label}
+                    className="relative overflow-hidden rounded-sm"
+                    style={{
+                      background: `linear-gradient(135deg, ${insight.accent}18 0%, transparent 60%)`,
+                      borderTop: `4px solid ${insight.accent}`,
+                      boxShadow: `0 0 30px ${insight.accent}15`,
+                    }}
+                    initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ delay: 4.6 + idx * 0.12, type: 'spring', damping: 20 }}
+                  >
+                    <div className="p-6">
+                      <span
+                        className="text-sm font-mono uppercase tracking-[0.2em] font-bold"
+                        style={{ color: insight.accent }}
+                      >
+                        {insight.label}
+                      </span>
+                      <p className="text-4xl font-black text-white mt-3 capitalize leading-tight">
+                        {insight.value}
+                      </p>
+                      <p className="text-lg text-text-muted mt-2">
+                        {insight.desc}
+                      </p>
+                    </div>
+                    {/* Decorative accent line */}
+                    <div
+                      className="absolute bottom-0 left-0 h-1 w-full opacity-30"
+                      style={{ background: `linear-gradient(to right, ${insight.accent}, transparent)` }}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Bubbles that formed — prominent section */}
+              {clusters.length > 0 && (
                 <motion.div
-                  key={insight.label}
-                  className="bg-bg-card/60 p-5 border-l-2 border-neon-blue/30 hover:border-neon-blue/60 transition-colors"
+                  className="mt-5 rounded-sm overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 60%)',
+                    borderTop: '4px solid rgba(255,255,255,0.2)',
+                  }}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 4.5 + idx * 0.15 }}
+                  transition={{ delay: 5.4, type: 'spring', damping: 20 }}
                 >
-                  <span className="text-text-muted text-xs uppercase tracking-wider">{insight.label}</span>
-                  <p className={`text-2xl font-bold capitalize mt-2 ${insight.color}`}>{insight.value}</p>
-                  <p className="text-text-muted text-sm mt-1">{insight.desc}</p>
+                  <div className="p-6">
+                    <span className="text-sm font-mono uppercase tracking-[0.2em] text-text-muted font-bold">
+                      THE BUBBLES THAT FORMED
+                    </span>
+                    <div className="flex flex-wrap gap-4 mt-4">
+                      {clusters.map((cluster, idx) => {
+                        const catColor = categoryColorMap[cluster.dominantCategories[0]] || categoryColorMap.tech;
+                        return (
+                          <motion.div
+                            key={cluster.id}
+                            className={`px-6 py-3 rounded-sm border ${catColor.border} ${catColor.bg}`}
+                            style={{ boxShadow: catColor.glow }}
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: 5.5 + idx * 0.1 }}
+                          >
+                            <span className={`font-black text-2xl ${catColor.text}`}>{cluster.label}</span>
+                            <span className="text-text-muted text-lg ml-3">{cluster.memberIds.length} people</span>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </motion.div>
-              ))}
+              )}
             </div>
           </div>
         </motion.div>
 
-        {/* Reset button — always visible */}
+        {/* Reset button */}
         <motion.div
           className="p-4 text-center relative z-20"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 5 }}
+          transition={{ delay: 6 }}
         >
           <button
             onClick={handleReset}
-            className="px-12 py-3 bg-bg-card border-2 border-text-muted text-text-muted font-bold text-lg
+            className="px-12 py-3 bg-bg-card/50 border border-text-muted/30 text-text-muted font-mono text-sm
                      uppercase tracking-wider hover:border-neon-blue hover:text-neon-blue transition-all"
           >
-            [ RESET ] or press ESC
+            press ESC to reset
           </button>
         </motion.div>
       </div>

@@ -314,16 +314,21 @@ export function generateClusterLabel(dominantCategories: string[]): string {
   return clusterLabels[dominantCategories[0]] || 'The Eclectics';
 }
 
-// Detect clusters among participants
+// Detect clusters among participants using category cosine similarity
 export function detectClusters(
   participants: Record<string, Participant>,
   threshold: number = 0.5
 ): ClusterInfo[] {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
-  const allContentIds = contentPool.map((c) => c.id);
 
   const clusters: ClusterInfo[] = [];
   const assigned = new Set<string>();
+
+  // Pre-compute category vectors for all participants
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
 
   for (const p of participantList) {
     if (assigned.has(p.odId)) continue;
@@ -331,13 +336,13 @@ export function detectClusters(
     const cluster: string[] = [p.odId];
     assigned.add(p.odId);
 
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
 
     for (const other of participantList) {
       if (assigned.has(other.odId)) continue;
 
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      const sim = calculateSimilarity(vectorP, vectorOther);
+      const vectorOther = vectors.get(other.odId)!;
+      const sim = cosineSimilarity(vectorP, vectorOther);
 
       if (sim >= threshold) {
         cluster.push(other.odId);
@@ -387,24 +392,27 @@ export function calculateAverageProgress(
   return Math.round(totalProgress / activeParticipants.length);
 }
 
-// Find most unique participant (lowest average similarity to others)
+// Find most unique participant (lowest average category similarity to others)
 export function findMostUnique(participants: Record<string, Participant>): string {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
   if (participantList.length < 2) return '';
 
-  const allContentIds = contentPool.map((c) => c.id);
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
+
   let mostUnique = '';
   let lowestAvgSimilarity = 1;
 
   for (const p of participantList) {
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
     let totalSim = 0;
     let count = 0;
 
     for (const other of participantList) {
       if (other.odId === p.odId) continue;
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      totalSim += calculateSimilarity(vectorP, vectorOther);
+      totalSim += cosineSimilarity(vectorP, vectors.get(other.odId)!);
       count++;
     }
 
@@ -418,24 +426,27 @@ export function findMostUnique(participants: Record<string, Participant>): strin
   return mostUnique;
 }
 
-// Find most mainstream participant (highest average similarity to others)
+// Find most mainstream participant (highest average category similarity to others)
 export function findMostMainstream(participants: Record<string, Participant>): string {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
   if (participantList.length < 2) return '';
 
-  const allContentIds = contentPool.map((c) => c.id);
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
+
   let mostMainstream = '';
   let highestAvgSimilarity = 0;
 
   for (const p of participantList) {
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
     let totalSim = 0;
     let count = 0;
 
     for (const other of participantList) {
       if (other.odId === p.odId) continue;
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      totalSim += calculateSimilarity(vectorP, vectorOther);
+      totalSim += cosineSimilarity(vectorP, vectors.get(other.odId)!);
       count++;
     }
 
