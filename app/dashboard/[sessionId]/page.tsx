@@ -44,7 +44,7 @@ export default function DashboardPage() {
   // Debug mode controls
   const [debugSettings, setDebugSettings] = useState({
     maxParticipants: 30,
-    simulationSpeed: 600,
+    simulationSpeed: 200,
     isSimulating: true, // Auto-start when game starts
     addingParticipants: true,
   });
