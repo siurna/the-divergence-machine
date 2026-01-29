@@ -566,6 +566,33 @@ export function getCategoryGroup(category: ContentCategory): string {
   return category.split('_')[0];
 }
 
+// Get display name for a subcategory (e.g., 'tech_optimist' → 'Tech Optimism')
+export function getSubcategoryDisplayName(subcategory: string): string {
+  const names: Record<string, string> = {
+    politics_left: 'Left Politics',
+    politics_right: 'Right Politics',
+    politics_center: 'Centrist Politics',
+    tech_optimist: 'Tech Optimism',
+    tech_pessimist: 'Tech Criticism',
+    entertainment_celebrity: 'Celebrity News',
+    entertainment_movies: 'Movies & TV',
+    entertainment_gaming: 'Gaming',
+    science_climate: 'Climate Science',
+    science_space: 'Space',
+    science_health: 'Health Science',
+    sports_mainstream: 'Mainstream Sports',
+    sports_niche: 'Niche Sports',
+    lifestyle_fitness: 'Fitness',
+    lifestyle_food: 'Food & Cooking',
+    lifestyle_travel: 'Travel',
+    finance_crypto: 'Crypto',
+    finance_traditional: 'Traditional Finance',
+    animals_cute: 'Cute Animals',
+    animals_wild: 'Wildlife',
+  };
+  return names[subcategory] || subcategory;
+}
+
 // Get color for a category
 export function getCategoryColor(categoryGroup: string): string {
   const colors: Record<string, string> = {

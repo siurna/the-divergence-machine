@@ -209,20 +209,19 @@ export default function JoinPage() {
   // PLAYING
   if (screen === 'playing' && currentCard) {
     const progress = ((cardCount + 1) / TOTAL_CARDS) * 100;
-    const categoryColor = getCategoryColor(getCategoryGroup(currentCard.category));
 
     return (
-      <div className="min-h-screen bg-bg-dark flex flex-col">
-        <div className="h-2 bg-bg-card">
+      <div className="h-screen bg-bg-dark flex flex-col overflow-hidden">
+        <div className="h-2 bg-bg-card flex-shrink-0">
           <motion.div className="h-full bg-gradient-to-r from-neon-blue to-neon-pink" animate={{ width: `${progress}%` }} />
         </div>
-        <div className="p-4 text-center text-text-muted font-mono text-sm">{cardCount + 1} / {TOTAL_CARDS}</div>
-        <div className="flex-1 flex items-center justify-center p-4">
-          <SwipeableCard key={currentCard.id} content={currentCard} categoryColor={categoryColor} onSwipe={handleChoice} />
+        <div className="p-3 text-center text-text-muted font-mono text-sm flex-shrink-0">{cardCount + 1} / {TOTAL_CARDS}</div>
+        <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+          <SwipeableCard key={currentCard.id} content={currentCard} onSwipe={handleChoice} />
         </div>
-        <div className="p-6 flex gap-4">
-          <button onClick={() => handleChoice('skip')} className="flex-1 py-4 bg-danger/20 border-2 border-danger text-danger font-bold text-xl uppercase active:bg-danger active:text-black">SKIP</button>
-          <button onClick={() => handleChoice('like')} className="flex-1 py-4 bg-neon-green/20 border-2 border-neon-green text-neon-green font-bold text-xl uppercase active:bg-neon-green active:text-black">LIKE</button>
+        <div className="p-4 pb-6 flex gap-4 flex-shrink-0">
+          <button onClick={() => handleChoice('skip')} className="flex-1 py-5 bg-danger/20 border-2 border-danger text-danger font-bold text-xl uppercase active:bg-danger active:text-black rounded-sm">SKIP</button>
+          <button onClick={() => handleChoice('like')} className="flex-1 py-5 bg-neon-green/20 border-2 border-neon-green text-neon-green font-bold text-xl uppercase active:bg-neon-green active:text-black rounded-sm">LIKE</button>
         </div>
       </div>
     );
@@ -278,7 +277,7 @@ export default function JoinPage() {
   );
 }
 
-function SwipeableCard({ content, categoryColor, onSwipe }: { content: ContentItem; categoryColor: string; onSwipe: (action: 'like' | 'skip') => void }) {
+function SwipeableCard({ content, onSwipe }: { content: ContentItem; onSwipe: (action: 'like' | 'skip') => void }) {
   const [dragX, setDragX] = useState(0);
   const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (info.offset.x > 100) onSwipe('like');
@@ -294,10 +293,10 @@ function SwipeableCard({ content, categoryColor, onSwipe }: { content: ContentIt
       animate={{ rotate: dragX * 0.1 }}
       className="w-full max-w-sm cursor-grab active:cursor-grabbing"
     >
-      <div className="relative p-6 min-h-[300px] flex flex-col justify-center" style={{ backgroundColor: '#12121A', borderLeft: `4px solid ${categoryColor}`, boxShadow: `0 0 30px ${categoryColor}30` }}>
+      <div className="relative p-8 min-h-[250px] flex flex-col justify-center bg-bg-card border border-white/10">
         <div className="absolute top-4 right-4 px-4 py-2 border-2 border-neon-green text-neon-green font-bold rotate-12 text-xl" style={{ opacity: Math.max(0, dragX / 150) }}>LIKE</div>
         <div className="absolute top-4 left-4 px-4 py-2 border-2 border-danger text-danger font-bold -rotate-12 text-xl" style={{ opacity: Math.max(0, -dragX / 150) }}>SKIP</div>
-        <p className="text-xl md:text-2xl text-white font-medium leading-relaxed">"{content.headline}"</p>
+        <p className="text-2xl md:text-3xl text-white font-medium leading-relaxed">{content.headline}</p>
       </div>
     </motion.div>
   );

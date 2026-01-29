@@ -245,12 +245,13 @@ export function calculateAllPositions(
   return positions;
 }
 
-// Find dominant categories for a set of participants
+// Find dominant subcategories for a set of participants
+// Returns subcategory-level names (e.g., 'tech_optimist', 'science_climate')
 export function findDominantCategories(
   memberIds: string[],
   participants: Record<string, Participant>
 ): string[] {
-  const categoryCount: Record<string, number> = {};
+  const subcategoryCount: Record<string, number> = {};
 
   for (const odId of memberIds) {
     const participant = participants[odId];
@@ -262,14 +263,13 @@ export function findDominantCategories(
     for (const choice of likes) {
       const content = contentPool.find((c) => c.id === choice.contentId);
       if (content) {
-        const group = getCategoryGroup(content.category);
-        categoryCount[group] = (categoryCount[group] || 0) + 1;
+        subcategoryCount[content.category] = (subcategoryCount[content.category] || 0) + 1;
       }
     }
   }
 
-  // Sort by count and return top 3
-  return Object.entries(categoryCount)
+  // Sort by count and return top 3 subcategories
+  return Object.entries(subcategoryCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([cat]) => cat);
@@ -314,9 +314,11 @@ const clusterLabels: Record<string, string> = {
 };
 
 // Generate cluster label based on dominant categories
+// dominantCategories now contains subcategory names like 'tech_optimist'
 export function generateClusterLabel(dominantCategories: string[]): string {
   if (dominantCategories.length === 0) return 'The Eclectics';
-  return clusterLabels[dominantCategories[0]] || 'The Eclectics';
+  const group = dominantCategories[0].split('_')[0];
+  return clusterLabels[group] || 'The Eclectics';
 }
 
 // Detect clusters among participants using category cosine similarity

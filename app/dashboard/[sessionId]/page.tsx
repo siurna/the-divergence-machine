@@ -22,7 +22,7 @@ import {
   findMostUnique,
   findMostMainstream,
 } from '@/lib/similarity';
-import { contentPool, getCategoryColor } from '@/lib/content';
+import { contentPool, getCategoryColor, getSubcategoryDisplayName } from '@/lib/content';
 import { Session, GameState, Participant, ClusterInfo, Choice } from '@/types';
 
 export default function DashboardPage() {
@@ -675,8 +675,9 @@ export default function DashboardPage() {
                     </span>
                     <div className="flex flex-wrap gap-4 mt-4">
                       {clusters.map((cluster, idx) => {
-                        const catColor = categoryColorMap[cluster.dominantCategories[0]] || categoryColorMap.tech;
-                        const topicList = cluster.dominantCategories.slice(0, 3).join(', ');
+                        const topGroup = cluster.dominantCategories[0]?.split('_')[0] || 'tech';
+                        const catColor = categoryColorMap[topGroup] || categoryColorMap.tech;
+                        const topicList = cluster.dominantCategories.slice(0, 3).map(getSubcategoryDisplayName).join(', ');
                         return (
                           <motion.div
                             key={cluster.id}
@@ -688,7 +689,7 @@ export default function DashboardPage() {
                           >
                             <span className={`font-black text-2xl ${catColor.text}`}>{cluster.label}</span>
                             <span className="text-text-muted text-lg ml-3">{cluster.memberIds.length} people</span>
-                            <span className="text-text-muted text-sm ml-2 capitalize">({topicList})</span>
+                            <span className="text-text-muted text-sm ml-2">({topicList})</span>
                           </motion.div>
                         );
                       })}
