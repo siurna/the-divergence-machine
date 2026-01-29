@@ -10,27 +10,38 @@ import {
 import { contentPool, getCategoryGroup } from './content';
 
 // Category positions on the 2D visualization plane
+// Groups are placed as interior clusters distributed across the space.
+// Subcategories within each group are close together (±3-5 units) to form
+// visible organic clusters rather than outlining the viewport edges.
 export const categoryPositions: CategoryPositions = {
-  politics_left: { x: 10, y: 30 },
-  politics_right: { x: 10, y: 70 },
-  politics_center: { x: 15, y: 50 },
-  tech_optimist: { x: 30, y: 20 },
-  tech_pessimist: { x: 30, y: 80 },
-  entertainment_celebrity: { x: 50, y: 90 },
-  entertainment_movies: { x: 55, y: 75 },
-  entertainment_gaming: { x: 60, y: 85 },
-  sports_mainstream: { x: 75, y: 70 },
-  sports_niche: { x: 80, y: 60 },
-  science_climate: { x: 40, y: 15 },
-  science_space: { x: 50, y: 10 },
-  science_health: { x: 45, y: 25 },
-  lifestyle_fitness: { x: 70, y: 30 },
-  lifestyle_food: { x: 65, y: 40 },
-  lifestyle_travel: { x: 75, y: 45 },
-  finance_crypto: { x: 90, y: 20 },
-  finance_traditional: { x: 85, y: 35 },
-  animals_cute: { x: 50, y: 50 },
-  animals_wild: { x: 55, y: 45 },
+  // Politics cluster — top left
+  politics_left: { x: 17, y: 20 },
+  politics_right: { x: 23, y: 20 },
+  politics_center: { x: 20, y: 26 },
+  // Tech cluster — top center
+  tech_optimist: { x: 47, y: 16 },
+  tech_pessimist: { x: 53, y: 20 },
+  // Science cluster — top right
+  science_climate: { x: 77, y: 20 },
+  science_space: { x: 83, y: 20 },
+  science_health: { x: 80, y: 26 },
+  // Finance cluster — right
+  finance_crypto: { x: 80, y: 47 },
+  finance_traditional: { x: 84, y: 53 },
+  // Sports cluster — bottom right
+  sports_mainstream: { x: 77, y: 76 },
+  sports_niche: { x: 83, y: 80 },
+  // Entertainment cluster — bottom center
+  entertainment_celebrity: { x: 47, y: 80 },
+  entertainment_movies: { x: 53, y: 80 },
+  entertainment_gaming: { x: 50, y: 85 },
+  // Lifestyle cluster — bottom left
+  lifestyle_fitness: { x: 17, y: 76 },
+  lifestyle_food: { x: 23, y: 76 },
+  lifestyle_travel: { x: 20, y: 82 },
+  // Animals cluster — left
+  animals_cute: { x: 16, y: 47 },
+  animals_wild: { x: 20, y: 53 },
 };
 
 // Build choice vector for a participant
@@ -78,21 +89,67 @@ export function calculateSimilarity(vectorA: number[], vectorB: number[]): numbe
   return intersection.size / union.size;
 }
 
+// Cosine similarity between two vectors
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  if (magA === 0 || magB === 0) return 1; // No choices yet = identical
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+}
+
+// The 8 main category groups for building preference vectors
+const categoryGroups = ['politics', 'tech', 'entertainment', 'science', 'sports', 'lifestyle', 'finance', 'animals'];
+
+// Build a category-group preference vector (8 dimensions, normalized)
+function buildCategoryVector(participant: Participant): number[] {
+  const choices = getChoicesArray(participant.choices);
+  const likes = choices.filter((c) => c.action === 'like');
+  const vec = new Array(categoryGroups.length).fill(0);
+
+  for (const choice of likes) {
+    const content = contentPool.find((c) => c.id === choice.contentId);
+    if (content) {
+      const group = getCategoryGroup(content.category);
+      const idx = categoryGroups.indexOf(group);
+      if (idx >= 0) vec[idx]++;
+    }
+  }
+
+  // Normalize to proportions
+  const total = vec.reduce((a: number, b: number) => a + b, 0);
+  if (total > 0) {
+    for (let i = 0; i < vec.length; i++) vec[i] /= total;
+  }
+
+  return vec;
+}
+
 // Calculate shared reality percentage across all participants
+// Uses category-group cosine similarity (not content-level Jaccard) so that
+// people who like the same TYPES of content show as similar even if they
+// saw different specific headlines.
 export function calculateSharedReality(participants: Participant[]): number {
   const activeParticipants = participants.filter((p) => p.isActive !== false);
 
   if (activeParticipants.length < 2) return 100;
 
-  const allContentIds = contentPool.map((c) => c.id);
+  // How many choices on average? Used for gradual onset.
+  const avgChoices = activeParticipants.reduce((sum, p) => {
+    return sum + getChoicesArray(p.choices).length;
+  }, 0) / activeParticipants.length;
+
+  const vectors = activeParticipants.map(buildCategoryVector);
+
   let totalSimilarity = 0;
   let pairCount = 0;
 
-  for (let i = 0; i < activeParticipants.length; i++) {
-    for (let j = i + 1; j < activeParticipants.length; j++) {
-      const vectorA = buildChoiceVector(activeParticipants[i].choices, allContentIds);
-      const vectorB = buildChoiceVector(activeParticipants[j].choices, allContentIds);
-      const sim = calculateSimilarity(vectorA, vectorB);
+  for (let i = 0; i < vectors.length; i++) {
+    for (let j = i + 1; j < vectors.length; j++) {
+      const sim = cosineSimilarity(vectors[i], vectors[j]);
       totalSimilarity += sim;
       pairCount++;
     }
@@ -100,7 +157,12 @@ export function calculateSharedReality(participants: Participant[]): number {
 
   if (pairCount === 0) return 100;
 
-  return Math.round((totalSimilarity / pairCount) * 100);
+  const rawReality = Math.round((totalSimilarity / pairCount) * 100);
+
+  // Gradual onset: with very few choices, stay closer to 100%
+  // Full effect after ~10 choices per person
+  const onset = Math.min(1, avgChoices / 10);
+  return Math.round(100 - (100 - rawReality) * onset);
 }
 
 // Get choices as array (handles Firebase object format)
@@ -111,30 +173,63 @@ function getChoicesArray(choices: Choice[] | Record<string, Choice> | undefined)
 }
 
 // Calculate position for a participant based on their likes
+// Uses dominant-category weighting so people with strong preferences
+// gravitate toward their category's cluster. Mixed interests → center area.
 export function calculatePosition(participant: Participant): Position {
   const choices = getChoicesArray(participant.choices);
   const likes = choices.filter((c) => c.action === 'like');
 
   if (likes.length === 0) {
-    return { x: 50, y: 50 }; // Center if no likes
+    // Slight random spread so new participants don't all stack at dead center
+    return { x: 45 + Math.random() * 10, y: 45 + Math.random() * 10 };
   }
 
-  let totalX = 0;
-  let totalY = 0;
-
+  // Count likes per subcategory
+  const subcategoryWeights: Record<string, number> = {};
   for (const choice of likes) {
     const content = contentPool.find((c) => c.id === choice.contentId);
     if (content) {
-      const pos = categoryPositions[content.category] || { x: 50, y: 50 };
-      totalX += pos.x;
-      totalY += pos.y;
+      subcategoryWeights[content.category] = (subcategoryWeights[content.category] || 0) + 1;
     }
   }
 
-  return {
-    x: totalX / likes.length,
-    y: totalY / likes.length,
-  };
+  // Sort by frequency (most liked first)
+  const sorted = Object.entries(subcategoryWeights).sort((a, b) => b[1] - a[1]);
+
+  // Top-heavy weighting: dominant categories get exponentially more influence
+  // This makes your #1 preference drive your position toward that cluster.
+  // People with diverse interests naturally land between clusters (center area).
+  let totalX = 0;
+  let totalY = 0;
+  let totalWeight = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const [cat, count] = sorted[i];
+    const pos = categoryPositions[cat as ContentCategory] || { x: 50, y: 50 };
+    // Rank bonus: #1 category gets 4x, #2 gets 2x, rest get 1x
+    const rankMultiplier = i === 0 ? 4 : i === 1 ? 2 : 1;
+    const weight = count * rankMultiplier;
+    totalX += pos.x * weight;
+    totalY += pos.y * weight;
+    totalWeight += weight;
+  }
+
+  let x = totalX / totalWeight;
+  let y = totalY / totalWeight;
+
+  // Deterministic jitter based on participant name to avoid exact overlaps
+  // when multiple people have identical preferences
+  const hash = participant.odId.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const jitterX = ((hash % 100) / 100) * 6 - 3; // ±3 units
+  const jitterY = (((hash >> 8) % 100) / 100) * 6 - 3;
+  x += jitterX;
+  y += jitterY;
+
+  // Clamp to valid range
+  x = Math.max(8, Math.min(92, x));
+  y = Math.max(8, Math.min(92, y));
+
+  return { x, y };
 }
 
 // Calculate positions for all participants
@@ -224,16 +319,21 @@ export function generateClusterLabel(dominantCategories: string[]): string {
   return clusterLabels[dominantCategories[0]] || 'The Eclectics';
 }
 
-// Detect clusters among participants
+// Detect clusters among participants using category cosine similarity
 export function detectClusters(
   participants: Record<string, Participant>,
   threshold: number = 0.5
 ): ClusterInfo[] {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
-  const allContentIds = contentPool.map((c) => c.id);
 
   const clusters: ClusterInfo[] = [];
   const assigned = new Set<string>();
+
+  // Pre-compute category vectors for all participants
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
 
   for (const p of participantList) {
     if (assigned.has(p.odId)) continue;
@@ -241,13 +341,13 @@ export function detectClusters(
     const cluster: string[] = [p.odId];
     assigned.add(p.odId);
 
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
 
     for (const other of participantList) {
       if (assigned.has(other.odId)) continue;
 
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      const sim = calculateSimilarity(vectorP, vectorOther);
+      const vectorOther = vectors.get(other.odId)!;
+      const sim = cosineSimilarity(vectorP, vectorOther);
 
       if (sim >= threshold) {
         cluster.push(other.odId);
@@ -297,24 +397,27 @@ export function calculateAverageProgress(
   return Math.round(totalProgress / activeParticipants.length);
 }
 
-// Find most unique participant (lowest average similarity to others)
+// Find most unique participant (lowest average category similarity to others)
 export function findMostUnique(participants: Record<string, Participant>): string {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
   if (participantList.length < 2) return '';
 
-  const allContentIds = contentPool.map((c) => c.id);
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
+
   let mostUnique = '';
   let lowestAvgSimilarity = 1;
 
   for (const p of participantList) {
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
     let totalSim = 0;
     let count = 0;
 
     for (const other of participantList) {
       if (other.odId === p.odId) continue;
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      totalSim += calculateSimilarity(vectorP, vectorOther);
+      totalSim += cosineSimilarity(vectorP, vectors.get(other.odId)!);
       count++;
     }
 
@@ -328,24 +431,27 @@ export function findMostUnique(participants: Record<string, Participant>): strin
   return mostUnique;
 }
 
-// Find most mainstream participant (highest average similarity to others)
+// Find most mainstream participant (highest average category similarity to others)
 export function findMostMainstream(participants: Record<string, Participant>): string {
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
   if (participantList.length < 2) return '';
 
-  const allContentIds = contentPool.map((c) => c.id);
+  const vectors = new Map<string, number[]>();
+  for (const p of participantList) {
+    vectors.set(p.odId, buildCategoryVector(p));
+  }
+
   let mostMainstream = '';
   let highestAvgSimilarity = 0;
 
   for (const p of participantList) {
-    const vectorP = buildChoiceVector(p.choices, allContentIds);
+    const vectorP = vectors.get(p.odId)!;
     let totalSim = 0;
     let count = 0;
 
     for (const other of participantList) {
       if (other.odId === p.odId) continue;
-      const vectorOther = buildChoiceVector(other.choices, allContentIds);
-      totalSim += calculateSimilarity(vectorP, vectorOther);
+      totalSim += cosineSimilarity(vectorP, vectors.get(other.odId)!);
       count++;
     }
 
