@@ -10,36 +10,38 @@ import {
 import { contentPool, getCategoryGroup } from './content';
 
 // Category positions on the 2D visualization plane
-// Arranged in a circle around center (50,50) for maximum visual separation
+// Groups are placed as interior clusters distributed across the space.
+// Subcategories within each group are close together (±3-5 units) to form
+// visible organic clusters rather than outlining the viewport edges.
 export const categoryPositions: CategoryPositions = {
-  // Politics - top left
-  politics_left: { x: 8, y: 15 },
-  politics_right: { x: 18, y: 25 },
-  politics_center: { x: 13, y: 35 },
-  // Tech - top center
-  tech_optimist: { x: 40, y: 8 },
-  tech_pessimist: { x: 50, y: 18 },
-  // Science - top right
-  science_climate: { x: 72, y: 8 },
-  science_space: { x: 82, y: 15 },
-  science_health: { x: 67, y: 20 },
-  // Finance - right
-  finance_crypto: { x: 92, y: 38 },
-  finance_traditional: { x: 88, y: 52 },
-  // Sports - bottom right
-  sports_mainstream: { x: 85, y: 72 },
-  sports_niche: { x: 78, y: 85 },
-  // Entertainment - bottom center
-  entertainment_celebrity: { x: 55, y: 92 },
-  entertainment_movies: { x: 45, y: 85 },
-  entertainment_gaming: { x: 62, y: 82 },
-  // Lifestyle - bottom left
-  lifestyle_fitness: { x: 25, y: 82 },
-  lifestyle_food: { x: 18, y: 72 },
-  lifestyle_travel: { x: 32, y: 90 },
-  // Animals - left
-  animals_cute: { x: 8, y: 55 },
-  animals_wild: { x: 15, y: 65 },
+  // Politics cluster — top left
+  politics_left: { x: 17, y: 20 },
+  politics_right: { x: 23, y: 20 },
+  politics_center: { x: 20, y: 26 },
+  // Tech cluster — top center
+  tech_optimist: { x: 47, y: 16 },
+  tech_pessimist: { x: 53, y: 20 },
+  // Science cluster — top right
+  science_climate: { x: 77, y: 20 },
+  science_space: { x: 83, y: 20 },
+  science_health: { x: 80, y: 26 },
+  // Finance cluster — right
+  finance_crypto: { x: 80, y: 47 },
+  finance_traditional: { x: 84, y: 53 },
+  // Sports cluster — bottom right
+  sports_mainstream: { x: 77, y: 76 },
+  sports_niche: { x: 83, y: 80 },
+  // Entertainment cluster — bottom center
+  entertainment_celebrity: { x: 47, y: 80 },
+  entertainment_movies: { x: 53, y: 80 },
+  entertainment_gaming: { x: 50, y: 85 },
+  // Lifestyle cluster — bottom left
+  lifestyle_fitness: { x: 17, y: 76 },
+  lifestyle_food: { x: 23, y: 76 },
+  lifestyle_travel: { x: 20, y: 82 },
+  // Animals cluster — left
+  animals_cute: { x: 16, y: 47 },
+  animals_wild: { x: 20, y: 53 },
 };
 
 // Build choice vector for a participant
@@ -171,8 +173,8 @@ function getChoicesArray(choices: Choice[] | Record<string, Choice> | undefined)
 }
 
 // Calculate position for a participant based on their likes
-// Uses dominant-category weighting + amplification from center so that
-// people with different preferences visually spread across the map.
+// Uses dominant-category weighting so people with strong preferences
+// gravitate toward their category's cluster. Mixed interests → center area.
 export function calculatePosition(participant: Participant): Position {
   const choices = getChoicesArray(participant.choices);
   const likes = choices.filter((c) => c.action === 'like');
@@ -195,7 +197,8 @@ export function calculatePosition(participant: Participant): Position {
   const sorted = Object.entries(subcategoryWeights).sort((a, b) => b[1] - a[1]);
 
   // Top-heavy weighting: dominant categories get exponentially more influence
-  // This prevents averaging-to-center and makes your #1 preference drive your position
+  // This makes your #1 preference drive your position toward that cluster.
+  // People with diverse interests naturally land between clusters (center area).
   let totalX = 0;
   let totalY = 0;
   let totalWeight = 0;
@@ -214,15 +217,17 @@ export function calculatePosition(participant: Participant): Position {
   let x = totalX / totalWeight;
   let y = totalY / totalWeight;
 
-  // Amplify offset from center to spread bubbles across the full visualization
-  // Without this, averaging multiple category positions always converges to center
-  const amplification = 1.8;
-  x = 50 + (x - 50) * amplification;
-  y = 50 + (y - 50) * amplification;
+  // Deterministic jitter based on participant name to avoid exact overlaps
+  // when multiple people have identical preferences
+  const hash = participant.odId.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const jitterX = ((hash % 100) / 100) * 6 - 3; // ±3 units
+  const jitterY = (((hash >> 8) % 100) / 100) * 6 - 3;
+  x += jitterX;
+  y += jitterY;
 
-  // Clamp to valid range with padding
-  x = Math.max(5, Math.min(95, x));
-  y = Math.max(5, Math.min(95, y));
+  // Clamp to valid range
+  x = Math.max(8, Math.min(92, x));
+  y = Math.max(8, Math.min(92, y));
 
   return { x, y };
 }

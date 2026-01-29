@@ -123,9 +123,9 @@ export default function DashboardPage() {
         return choices.length < 40;
       });
 
-      // Shuffle and pick a random subset
+      // Shuffle and pick a random subset — cap at 8 to prevent Firebase write overload
       const shuffled = [...activePool].sort(() => Math.random() - 0.5);
-      const batchSize = Math.max(1, Math.ceil(shuffled.length * 0.3));
+      const batchSize = Math.min(8, Math.max(1, Math.ceil(shuffled.length * 0.3)));
       const batch = shuffled.slice(0, batchSize);
 
       for (const participant of batch) {
@@ -234,7 +234,7 @@ export default function DashboardPage() {
           if (session.gameState === 'playing' || session.gameState === 'paused') handleReveal();
           break;
         case 'Escape':
-          if (session.gameState === 'reveal' || session.gameState === 'ended') handleReset();
+          if (session.gameState === 'ended') handleReset();
           break;
         case 'KeyQ':
           setShowQR((prev) => !prev);
@@ -468,7 +468,9 @@ export default function DashboardPage() {
       {
         label: 'WORLDS APART',
         value: worldsApartA && worldsApartB ? `${worldsApartA} & ${worldsApartB}` : '—',
-        desc: `Only ${overlapPct}% overlap — same app, different reality`,
+        desc: overlapPct === 0
+          ? 'Zero overlap — completely different realities'
+          : `${overlapPct}% overlap — same app, different reality`,
         accent: '#00F0FF',
       },
       narrowingHappened
@@ -698,21 +700,6 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Reset button */}
-        <motion.div
-          className="p-4 text-center relative z-20"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 6 }}
-        >
-          <button
-            onClick={handleReset}
-            className="px-12 py-3 bg-bg-card/50 border border-text-muted/30 text-text-muted font-mono text-sm
-                     uppercase tracking-wider hover:border-neon-blue hover:text-neon-blue transition-all"
-          >
-            press ESC to reset
-          </button>
-        </motion.div>
       </div>
     );
   }
@@ -943,7 +930,7 @@ function BubbleVisualization({
 
     // Simple clustering based on position proximity
     const clusterColors = ['#FF0055', '#00F0FF', '#FF00E5', '#39FF14', '#FF6B00'];
-    const threshold = 35; // Distance threshold for clustering (positions are spread wide)
+    const threshold = 20; // Distance threshold for visual cluster blobs
     const groups: Participant[][] = [];
     const assigned = new Set<string>();
 
@@ -992,16 +979,11 @@ function BubbleVisualization({
 
   const participantList = Object.values(participants).filter((p) => p.isActive !== false) as Participant[];
 
-  const getPixelPosition = (position: { x: number; y: number }, padding = 60) => {
+  const getPixelPosition = (position: { x: number; y: number }, padding = 40) => {
     const { width, height } = dimensions;
-    // Use uniform scaling (square coordinate space) so circular category layout
-    // stays circular on any aspect ratio screen — prevents "invisible rectangle"
-    const size = Math.min(width - padding * 2, height - padding * 2);
-    const offsetX = (width - size) / 2;
-    const offsetY = (height - size) / 2;
     return {
-      x: offsetX + (position.x / 100) * size,
-      y: offsetY + (position.y / 100) * size,
+      x: padding + (position.x / 100) * (width - padding * 2),
+      y: padding + (position.y / 100) * (height - padding * 2),
     };
   };
 
