@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { motion, PanInfo } from 'framer-motion';
 import {
@@ -10,10 +10,12 @@ import {
   subscribeToGameState,
   subscribeToParticipantCount,
 } from '@/lib/firebase';
-import { generateContentQueue, getCategoryGroup, getCategoryColor } from '@/lib/content';
+import { getNextRecommendedCard, contentPool, getCategoryGroup, getCategoryColor } from '@/lib/content';
 import { ContentItem, Choice, GameState } from '@/types';
 
 type Screen = 'join' | 'waiting' | 'playing' | 'complete';
+
+const TOTAL_CARDS = 40;
 
 export default function JoinPage() {
   const params = useParams();
@@ -24,15 +26,21 @@ export default function JoinPage() {
   const [odId, setOdId] = useState('');
   const [gameState, setGameState] = useState<GameState>('waiting');
   const [participantCount, setParticipantCount] = useState(0);
-  const [contentQueue, setContentQueue] = useState<ContentItem[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentCard, setCurrentCard] = useState<ContentItem | null>(null);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const [pastChoices, setPastChoices] = useState<{ contentId: string; action: 'like' | 'skip' }[]>([]);
+  const [cardCount, setCardCount] = useState(0);
   const [choices, setChoices] = useState<Choice[]>([]);
   const [error, setError] = useState('');
   const [isJoining, setIsJoining] = useState(false);
 
-  // Generate content queue on mount
+  // Get the first recommended card on mount
   useEffect(() => {
-    setContentQueue(generateContentQueue(40));
+    const firstCard = getNextRecommendedCard([], new Set());
+    if (firstCard) {
+      setCurrentCard(firstCard);
+      seenIdsRef.current.add(firstCard.id);
+    }
   }, []);
 
   // Subscribe to game state
@@ -83,13 +91,16 @@ export default function JoinPage() {
 
   const handleChoice = useCallback(
     async (action: 'like' | 'skip') => {
-      if (currentIndex >= contentQueue.length) return;
+      if (!currentCard) return;
 
-      const content = contentQueue[currentIndex];
-      const choice: Choice = { contentId: content.id, action, timestamp: Date.now() };
+      // Record the past choice for the recommendation algorithm
+      const newPastChoice = { contentId: currentCard.id, action };
+      const updatedPastChoices = [...pastChoices, newPastChoice];
+      setPastChoices(updatedPastChoices);
 
+      // Record the full choice for Firebase and stats
+      const choice: Choice = { contentId: currentCard.id, action, timestamp: Date.now() };
       setChoices((prev: Choice[]) => [...prev, choice]);
-      setCurrentIndex((prev) => prev + 1);
 
       try {
         await recordChoice(sessionId, odId, choice);
@@ -97,17 +108,34 @@ export default function JoinPage() {
         console.error('Failed to record:', error);
       }
 
-      if (currentIndex >= contentQueue.length - 1) {
+      const newCardCount = cardCount + 1;
+      setCardCount(newCardCount);
+
+      // After TOTAL_CARDS, go to complete screen
+      if (newCardCount >= TOTAL_CARDS) {
+        setCurrentCard(null);
+        setScreen('complete');
+        return;
+      }
+
+      // Get the next recommended card based on all past choices
+      const nextCard = getNextRecommendedCard(updatedPastChoices, seenIdsRef.current);
+      if (nextCard) {
+        seenIdsRef.current.add(nextCard.id);
+        setCurrentCard(nextCard);
+      } else {
+        // No more unseen content available
+        setCurrentCard(null);
         setScreen('complete');
       }
     },
-    [sessionId, odId, currentIndex, contentQueue]
+    [sessionId, odId, currentCard, pastChoices, cardCount]
   );
 
   const topCategories = useMemo(() => {
     const categoryCount: Record<string, number> = {};
-    for (const choice of choices.filter((c) => c.action === 'like')) {
-      const content = contentQueue.find((c) => c.id === choice.contentId);
+    for (const choice of pastChoices.filter((c) => c.action === 'like')) {
+      const content = contentPool.find((c) => c.id === choice.contentId);
       if (content) {
         const group = getCategoryGroup(content.category);
         categoryCount[group] = (categoryCount[group] || 0) + 1;
@@ -117,7 +145,7 @@ export default function JoinPage() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([cat]) => cat);
-  }, [choices, contentQueue]);
+  }, [pastChoices]);
 
   const categoryInfo: Record<string, { name: string; emoji: string }> = {
     politics: { name: 'Politics', emoji: '📰' },
@@ -179,9 +207,8 @@ export default function JoinPage() {
   }
 
   // PLAYING
-  if (screen === 'playing' && currentIndex < contentQueue.length) {
-    const currentCard = contentQueue[currentIndex];
-    const progress = ((currentIndex + 1) / contentQueue.length) * 100;
+  if (screen === 'playing' && currentCard) {
+    const progress = ((cardCount + 1) / TOTAL_CARDS) * 100;
     const categoryColor = getCategoryColor(getCategoryGroup(currentCard.category));
 
     return (
@@ -189,7 +216,7 @@ export default function JoinPage() {
         <div className="h-2 bg-bg-card">
           <motion.div className="h-full bg-gradient-to-r from-neon-blue to-neon-pink" animate={{ width: `${progress}%` }} />
         </div>
-        <div className="p-4 text-center text-text-muted font-mono text-sm">{currentIndex + 1} / {contentQueue.length}</div>
+        <div className="p-4 text-center text-text-muted font-mono text-sm">{cardCount + 1} / {TOTAL_CARDS}</div>
         <div className="flex-1 flex items-center justify-center p-4">
           <SwipeableCard key={currentCard.id} content={currentCard} categoryColor={categoryColor} onSwipe={handleChoice} />
         </div>
