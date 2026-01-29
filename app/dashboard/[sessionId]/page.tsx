@@ -505,7 +505,7 @@ export default function DashboardPage() {
       {
         label: 'THE RABBIT HOLE',
         value: `${rabbitHoleAvg}%`,
-        desc: 'of your last 10 cards were your #1 topic',
+        desc: 'of the avg person\'s last 10 cards were their #1 topic',
         accent: '#00FF88',
       },
       {
@@ -992,11 +992,16 @@ function BubbleVisualization({
 
   const participantList = Object.values(participants).filter((p) => p.isActive !== false) as Participant[];
 
-  const getPixelPosition = (position: { x: number; y: number }, padding = 80) => {
+  const getPixelPosition = (position: { x: number; y: number }, padding = 60) => {
     const { width, height } = dimensions;
+    // Use uniform scaling (square coordinate space) so circular category layout
+    // stays circular on any aspect ratio screen — prevents "invisible rectangle"
+    const size = Math.min(width - padding * 2, height - padding * 2);
+    const offsetX = (width - size) / 2;
+    const offsetY = (height - size) / 2;
     return {
-      x: padding + (position.x / 100) * (width - padding * 2),
-      y: padding + (position.y / 100) * (height - padding * 2),
+      x: offsetX + (position.x / 100) * size,
+      y: offsetY + (position.y / 100) * size,
     };
   };
 
