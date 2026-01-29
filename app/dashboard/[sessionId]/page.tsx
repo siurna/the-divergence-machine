@@ -113,35 +113,41 @@ export default function DashboardPage() {
       // Only make choices when game is actually playing
       if (currentSession.gameState !== 'playing') return;
 
-      // Make choices for ALL participants
+      // Make choices for a random subset of participants each tick
       const participantArray = Object.values(participants);
       if (participantArray.length === 0) return;
 
-      // Process ALL participants each tick (not just a batch) to ensure everyone moves
-      for (const participant of participantArray) {
+      // Each tick, randomly pick ~30% of participants to swipe (simulates natural staggering)
+      const activePool = participantArray.filter((p) => {
+        const choices = p.choices ? Object.values(p.choices) : [];
+        return choices.length < 40;
+      });
+
+      // Shuffle and pick a random subset
+      const shuffled = [...activePool].sort(() => Math.random() - 0.5);
+      const batchSize = Math.max(1, Math.ceil(shuffled.length * 0.3));
+      const batch = shuffled.slice(0, batchSize);
+
+      for (const participant of batch) {
         const choices = participant.choices ? Object.values(participant.choices) : [];
+        const personality = getOrAssignPersonality(participant.odId);
+        const unseenContent = contentPool.filter(
+          (c) => !choices.some((ch: Choice) => ch.contentId === c.id)
+        );
 
-        // Everyone makes a choice if they haven't finished (no random skip!)
-        if (choices.length < 40) {
-          const personality = getOrAssignPersonality(participant.odId);
-          const unseenContent = contentPool.filter(
-            (c) => !choices.some((ch: Choice) => ch.contentId === c.id)
-          );
+        if (unseenContent.length > 0) {
+          const randomContent = unseenContent[Math.floor(Math.random() * unseenContent.length)];
+          const contentCategory = randomContent.category.split('_')[0];
 
-          if (unseenContent.length > 0) {
-            const randomContent = unseenContent[Math.floor(Math.random() * unseenContent.length)];
-            const contentCategory = randomContent.category.split('_')[0];
+          // Like probability based on personality match
+          const matchesPersonality = personality.includes(contentCategory);
+          const likeChance = matchesPersonality ? 0.85 : 0.15;
 
-            // Like probability based on personality match
-            const matchesPersonality = personality.includes(contentCategory);
-            const likeChance = matchesPersonality ? 0.85 : 0.15;
-
-            await recordChoice(sessionId, participant.odId, {
-              contentId: randomContent.id,
-              action: Math.random() < likeChance ? 'like' : 'skip',
-              timestamp: Date.now(),
-            });
-          }
+          await recordChoice(sessionId, participant.odId, {
+            contentId: randomContent.id,
+            action: Math.random() < likeChance ? 'like' : 'skip',
+            timestamp: Date.now(),
+          });
         }
       }
     };
