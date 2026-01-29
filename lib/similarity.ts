@@ -10,27 +10,36 @@ import {
 import { contentPool, getCategoryGroup } from './content';
 
 // Category positions on the 2D visualization plane
+// Arranged in a circle around center (50,50) for maximum visual separation
 export const categoryPositions: CategoryPositions = {
-  politics_left: { x: 10, y: 30 },
-  politics_right: { x: 10, y: 70 },
-  politics_center: { x: 15, y: 50 },
-  tech_optimist: { x: 30, y: 20 },
-  tech_pessimist: { x: 30, y: 80 },
-  entertainment_celebrity: { x: 50, y: 90 },
-  entertainment_movies: { x: 55, y: 75 },
-  entertainment_gaming: { x: 60, y: 85 },
-  sports_mainstream: { x: 75, y: 70 },
-  sports_niche: { x: 80, y: 60 },
-  science_climate: { x: 40, y: 15 },
-  science_space: { x: 50, y: 10 },
-  science_health: { x: 45, y: 25 },
-  lifestyle_fitness: { x: 70, y: 30 },
-  lifestyle_food: { x: 65, y: 40 },
-  lifestyle_travel: { x: 75, y: 45 },
-  finance_crypto: { x: 90, y: 20 },
-  finance_traditional: { x: 85, y: 35 },
-  animals_cute: { x: 50, y: 50 },
-  animals_wild: { x: 55, y: 45 },
+  // Politics - top left
+  politics_left: { x: 8, y: 15 },
+  politics_right: { x: 18, y: 25 },
+  politics_center: { x: 13, y: 35 },
+  // Tech - top center
+  tech_optimist: { x: 40, y: 8 },
+  tech_pessimist: { x: 50, y: 18 },
+  // Science - top right
+  science_climate: { x: 72, y: 8 },
+  science_space: { x: 82, y: 15 },
+  science_health: { x: 67, y: 20 },
+  // Finance - right
+  finance_crypto: { x: 92, y: 38 },
+  finance_traditional: { x: 88, y: 52 },
+  // Sports - bottom right
+  sports_mainstream: { x: 85, y: 72 },
+  sports_niche: { x: 78, y: 85 },
+  // Entertainment - bottom center
+  entertainment_celebrity: { x: 55, y: 92 },
+  entertainment_movies: { x: 45, y: 85 },
+  entertainment_gaming: { x: 62, y: 82 },
+  // Lifestyle - bottom left
+  lifestyle_fitness: { x: 25, y: 82 },
+  lifestyle_food: { x: 18, y: 72 },
+  lifestyle_travel: { x: 32, y: 90 },
+  // Animals - left
+  animals_cute: { x: 8, y: 55 },
+  animals_wild: { x: 15, y: 65 },
 };
 
 // Build choice vector for a participant
@@ -78,21 +87,67 @@ export function calculateSimilarity(vectorA: number[], vectorB: number[]): numbe
   return intersection.size / union.size;
 }
 
+// Cosine similarity between two vectors
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, magA = 0, magB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    magA += a[i] * a[i];
+    magB += b[i] * b[i];
+  }
+  if (magA === 0 || magB === 0) return 1; // No choices yet = identical
+  return dot / (Math.sqrt(magA) * Math.sqrt(magB));
+}
+
+// The 8 main category groups for building preference vectors
+const categoryGroups = ['politics', 'tech', 'entertainment', 'science', 'sports', 'lifestyle', 'finance', 'animals'];
+
+// Build a category-group preference vector (8 dimensions, normalized)
+function buildCategoryVector(participant: Participant): number[] {
+  const choices = getChoicesArray(participant.choices);
+  const likes = choices.filter((c) => c.action === 'like');
+  const vec = new Array(categoryGroups.length).fill(0);
+
+  for (const choice of likes) {
+    const content = contentPool.find((c) => c.id === choice.contentId);
+    if (content) {
+      const group = getCategoryGroup(content.category);
+      const idx = categoryGroups.indexOf(group);
+      if (idx >= 0) vec[idx]++;
+    }
+  }
+
+  // Normalize to proportions
+  const total = vec.reduce((a: number, b: number) => a + b, 0);
+  if (total > 0) {
+    for (let i = 0; i < vec.length; i++) vec[i] /= total;
+  }
+
+  return vec;
+}
+
 // Calculate shared reality percentage across all participants
+// Uses category-group cosine similarity (not content-level Jaccard) so that
+// people who like the same TYPES of content show as similar even if they
+// saw different specific headlines.
 export function calculateSharedReality(participants: Participant[]): number {
   const activeParticipants = participants.filter((p) => p.isActive !== false);
 
   if (activeParticipants.length < 2) return 100;
 
-  const allContentIds = contentPool.map((c) => c.id);
+  // How many choices on average? Used for gradual onset.
+  const avgChoices = activeParticipants.reduce((sum, p) => {
+    return sum + getChoicesArray(p.choices).length;
+  }, 0) / activeParticipants.length;
+
+  const vectors = activeParticipants.map(buildCategoryVector);
+
   let totalSimilarity = 0;
   let pairCount = 0;
 
-  for (let i = 0; i < activeParticipants.length; i++) {
-    for (let j = i + 1; j < activeParticipants.length; j++) {
-      const vectorA = buildChoiceVector(activeParticipants[i].choices, allContentIds);
-      const vectorB = buildChoiceVector(activeParticipants[j].choices, allContentIds);
-      const sim = calculateSimilarity(vectorA, vectorB);
+  for (let i = 0; i < vectors.length; i++) {
+    for (let j = i + 1; j < vectors.length; j++) {
+      const sim = cosineSimilarity(vectors[i], vectors[j]);
       totalSimilarity += sim;
       pairCount++;
     }
@@ -100,7 +155,12 @@ export function calculateSharedReality(participants: Participant[]): number {
 
   if (pairCount === 0) return 100;
 
-  return Math.round((totalSimilarity / pairCount) * 100);
+  const rawReality = Math.round((totalSimilarity / pairCount) * 100);
+
+  // Gradual onset: with very few choices, stay closer to 100%
+  // Full effect after ~10 choices per person
+  const onset = Math.min(1, avgChoices / 10);
+  return Math.round(100 - (100 - rawReality) * onset);
 }
 
 // Get choices as array (handles Firebase object format)
@@ -111,30 +171,60 @@ function getChoicesArray(choices: Choice[] | Record<string, Choice> | undefined)
 }
 
 // Calculate position for a participant based on their likes
+// Uses dominant-category weighting + amplification from center so that
+// people with different preferences visually spread across the map.
 export function calculatePosition(participant: Participant): Position {
   const choices = getChoicesArray(participant.choices);
   const likes = choices.filter((c) => c.action === 'like');
 
   if (likes.length === 0) {
-    return { x: 50, y: 50 }; // Center if no likes
+    // Slight random spread so new participants don't all stack at dead center
+    return { x: 45 + Math.random() * 10, y: 45 + Math.random() * 10 };
   }
 
-  let totalX = 0;
-  let totalY = 0;
-
+  // Count likes per subcategory
+  const subcategoryWeights: Record<string, number> = {};
   for (const choice of likes) {
     const content = contentPool.find((c) => c.id === choice.contentId);
     if (content) {
-      const pos = categoryPositions[content.category] || { x: 50, y: 50 };
-      totalX += pos.x;
-      totalY += pos.y;
+      subcategoryWeights[content.category] = (subcategoryWeights[content.category] || 0) + 1;
     }
   }
 
-  return {
-    x: totalX / likes.length,
-    y: totalY / likes.length,
-  };
+  // Sort by frequency (most liked first)
+  const sorted = Object.entries(subcategoryWeights).sort((a, b) => b[1] - a[1]);
+
+  // Top-heavy weighting: dominant categories get exponentially more influence
+  // This prevents averaging-to-center and makes your #1 preference drive your position
+  let totalX = 0;
+  let totalY = 0;
+  let totalWeight = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const [cat, count] = sorted[i];
+    const pos = categoryPositions[cat as ContentCategory] || { x: 50, y: 50 };
+    // Rank bonus: #1 category gets 4x, #2 gets 2x, rest get 1x
+    const rankMultiplier = i === 0 ? 4 : i === 1 ? 2 : 1;
+    const weight = count * rankMultiplier;
+    totalX += pos.x * weight;
+    totalY += pos.y * weight;
+    totalWeight += weight;
+  }
+
+  let x = totalX / totalWeight;
+  let y = totalY / totalWeight;
+
+  // Amplify offset from center to spread bubbles across the full visualization
+  // Without this, averaging multiple category positions always converges to center
+  const amplification = 1.8;
+  x = 50 + (x - 50) * amplification;
+  y = 50 + (y - 50) * amplification;
+
+  // Clamp to valid range with padding
+  x = Math.max(5, Math.min(95, x));
+  y = Math.max(5, Math.min(95, y));
+
+  return { x, y };
 }
 
 // Calculate positions for all participants

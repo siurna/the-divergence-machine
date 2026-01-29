@@ -697,7 +697,7 @@ function BubbleVisualization({
 
     // Simple clustering based on position proximity
     const clusterColors = ['#FF0055', '#00F0FF', '#FF00E5', '#39FF14', '#FF6B00'];
-    const threshold = 25; // Distance threshold for clustering
+    const threshold = 35; // Distance threshold for clustering (positions are spread wide)
     const groups: Participant[][] = [];
     const assigned = new Set<string>();
 
