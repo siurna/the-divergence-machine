@@ -307,61 +307,118 @@ export default function DashboardPage() {
       color: ['#FF0055', '#00F0FF', '#FF00E5', '#39FF14', '#FF6B00', '#BF00FF'][Math.floor(Math.random() * 6)],
     }));
 
-    // Calculate fascinating facts
-    const totalSwipes = session.stats?.totalChoicesMade || 0;
-    const avgSwipesPerPerson = participantCount > 0 ? Math.round(totalSwipes / participantCount) : 0;
+    // === Compute reveal insights ===
 
-    // Category analysis
-    const categoryStats: Record<string, { likes: number; skips: number; uniqueLikers: Set<string> }> = {};
-    participantList.forEach((p) => {
+    // Per-person category breakdown
+    const personProfiles = participantList.map((p) => {
       const choices = p.choices ? Object.values(p.choices) : [];
-      choices.forEach((c: Choice) => {
+      const likes = choices.filter((c: Choice) => c.action === 'like');
+      const catCounts: Record<string, number> = {};
+      const seenCats = new Set<string>();
+      for (const c of likes) {
         const content = contentPool.find((item) => item.id === c.contentId);
         if (content) {
           const cat = content.category.split('_')[0];
-          if (!categoryStats[cat]) categoryStats[cat] = { likes: 0, skips: 0, uniqueLikers: new Set() };
-          if (c.action === 'like') {
-            categoryStats[cat].likes++;
-            categoryStats[cat].uniqueLikers.add(p.odId);
-          } else {
-            categoryStats[cat].skips++;
-          }
+          catCounts[cat] = (catCounts[cat] || 0) + 1;
+          seenCats.add(cat);
         }
-      });
+      }
+      const sorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+      const topCat = sorted[0]?.[0] || '';
+      const topCount = sorted[0]?.[1] || 0;
+      const concentration = likes.length > 0 ? Math.round((topCount / likes.length) * 100) : 0;
+      return { name: p.name, odId: p.odId, topCat, concentration, catCounts, seenCats, totalLikes: likes.length, totalChoices: choices.length };
     });
 
-    // Find interesting insights
-    const mostPolarizing = Object.entries(categoryStats)
-      .map(([cat, stats]) => ({ cat, ratio: Math.min(stats.likes, stats.skips) / Math.max(stats.likes, stats.skips, 1) }))
-      .sort((a, b) => b.ratio - a.ratio)[0];
+    // 1. Most Trapped — person with the highest % in one category
+    const mostTrapped = [...personProfiles].sort((a, b) => b.concentration - a.concentration)[0];
 
-    const mostUnifying = Object.entries(categoryStats)
-      .map(([cat, stats]) => ({ cat, pct: (stats.uniqueLikers.size / participantCount) * 100 }))
-      .sort((a, b) => b.pct - a.pct)[0];
+    // 2. Worlds Apart — find the two most different people (lowest cosine similarity on category vectors)
+    const allCatGroups = ['politics', 'tech', 'entertainment', 'science', 'sports', 'lifestyle', 'finance', 'animals'];
+    let worldsApartA = '', worldsApartB = '', lowestSim = 1;
+    for (let i = 0; i < personProfiles.length; i++) {
+      for (let j = i + 1; j < personProfiles.length; j++) {
+        const vecA = allCatGroups.map(c => personProfiles[i].catCounts[c] || 0);
+        const vecB = allCatGroups.map(c => personProfiles[j].catCounts[c] || 0);
+        const magA = Math.sqrt(vecA.reduce((s, v) => s + v * v, 0));
+        const magB = Math.sqrt(vecB.reduce((s, v) => s + v * v, 0));
+        const dot = vecA.reduce((s, v, k) => s + v * vecB[k], 0);
+        const sim = (magA > 0 && magB > 0) ? dot / (magA * magB) : 1;
+        if (sim < lowestSim) {
+          lowestSim = sim;
+          worldsApartA = personProfiles[i].name;
+          worldsApartB = personProfiles[j].name;
+        }
+      }
+    }
 
-    const leastPopular = Object.entries(categoryStats)
-      .map(([cat, stats]) => ({ cat, pct: (stats.uniqueLikers.size / participantCount) * 100 }))
-      .sort((a, b) => a.pct - b.pct)[0];
+    // 3. Invisible Content — how many categories does the average person never see
+    const avgCatsSeen = personProfiles.reduce((s, p) => s + p.seenCats.size, 0) / Math.max(1, personProfiles.length);
+    const avgCatsMissed = Math.round(8 - avgCatsSeen);
 
-    // Calculate "echo chamber strength" - how much people stayed in their lanes
-    const avgCategoriesPerPerson = participantList.reduce((sum, p) => {
+    // 4. The biggest bubble — most common dominant category
+    const bubbleCounts: Record<string, number> = {};
+    for (const p of personProfiles) {
+      if (p.topCat) bubbleCounts[p.topCat] = (bubbleCounts[p.topCat] || 0) + 1;
+    }
+    const biggestBubble = Object.entries(bubbleCounts).sort((a, b) => b[1] - a[1])[0];
+    const biggestBubblePct = biggestBubble ? Math.round((biggestBubble[1] / personProfiles.length) * 100) : 0;
+
+    // 5. Content uniqueness — what % of each person's feed was NOT shared with anyone else
+    const allSeenSets = participantList.map((p) => {
       const choices = p.choices ? Object.values(p.choices) : [];
-      const likedCats = new Set(choices.filter((c: Choice) => c.action === 'like').map((c: Choice) => {
-        const content = contentPool.find((item) => item.id === c.contentId);
-        return content ? content.category.split('_')[0] : null;
-      }).filter(Boolean));
-      return sum + likedCats.size;
-    }, 0) / Math.max(1, participantCount);
-
-    const echoStrength = Math.round(100 - (avgCategoriesPerPerson / 8) * 100); // 8 categories
+      return new Set(choices.filter((c: Choice) => c.action === 'like').map((c: Choice) => c.contentId));
+    });
+    let totalUniquePct = 0;
+    for (let i = 0; i < allSeenSets.length; i++) {
+      const myLikes = allSeenSets[i];
+      if (myLikes.size === 0) continue;
+      let uniqueToMe = 0;
+      for (const id of myLikes) {
+        const sharedWith = allSeenSets.filter((s, j) => j !== i && s.has(id)).length;
+        if (sharedWith === 0) uniqueToMe++;
+      }
+      totalUniquePct += uniqueToMe / myLikes.size;
+    }
+    const avgUniquePct = allSeenSets.length > 0 ? Math.round((totalUniquePct / allSeenSets.length) * 100) : 0;
 
     const insights = [
-      { emoji: '🔥', label: 'Split the Room', value: mostPolarizing?.cat || 'N/A', desc: 'Most divisive topic' },
-      { emoji: '🤝', label: 'Common Ground', value: mostUnifying?.cat || 'N/A', desc: `${Math.round(mostUnifying?.pct || 0)}% liked it` },
-      { emoji: '🙈', label: 'Ghost Town', value: leastPopular?.cat || 'N/A', desc: 'Least popular' },
-      { emoji: '🫧', label: 'Echo Chamber', value: `${echoStrength}%`, desc: 'How siloed were we' },
-      { emoji: '⚡', label: 'Total Swipes', value: totalSwipes.toLocaleString(), desc: `${avgSwipesPerPerson} per person` },
-      { emoji: '🎯', label: 'Filter Bubbles', value: clusters.length.toString(), desc: 'Distinct groups' },
+      {
+        label: 'DEEPEST BUBBLE',
+        value: mostTrapped?.name || '—',
+        desc: mostTrapped ? `${mostTrapped.concentration}% of their feed was ${mostTrapped.topCat}` : '',
+        color: 'text-neon-pink',
+      },
+      {
+        label: 'WORLDS APART',
+        value: worldsApartA && worldsApartB ? `${worldsApartA} & ${worldsApartB}` : '—',
+        desc: `${Math.round((1 - lowestSim) * 100)}% different — same app, different universe`,
+        color: 'text-neon-blue',
+      },
+      {
+        label: 'BIGGEST BUBBLE',
+        value: biggestBubble ? biggestBubble[0] : '—',
+        desc: biggestBubble ? `${biggestBubblePct}% of the room got trapped here` : '',
+        color: 'text-warning',
+      },
+      {
+        label: 'INVISIBLE TOPICS',
+        value: `${avgCatsMissed} of 8`,
+        desc: 'Categories the average person never saw',
+        color: 'text-neon-green',
+      },
+      {
+        label: 'YOUR FEED WAS UNIQUE',
+        value: `${avgUniquePct}%`,
+        desc: 'of liked content was seen by nobody else',
+        color: 'text-neon-pink',
+      },
+      {
+        label: 'FILTER BUBBLES',
+        value: clusters.length.toString(),
+        desc: `${participantCount} people sorted into ${clusters.length} groups`,
+        color: 'text-neon-blue',
+      },
     ];
 
     return (
@@ -425,31 +482,30 @@ export default function DashboardPage() {
               transition={{ delay: 1.5, duration: 0.5 }}
             />
 
-            {/* Right side - Insights grid */}
+            {/* Right side - Insights */}
             <div className="flex-1">
               <motion.p
-                className="text-text-muted text-sm uppercase tracking-wider mb-4"
+                className="text-text-muted text-sm uppercase tracking-wider mb-5"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 1.8 }}
               >
-                What Happened
+                The Algorithm&apos;s Effect
               </motion.p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 {insights.map((insight, idx) => (
                   <motion.div
                     key={insight.label}
-                    className="bg-bg-card/60 p-4 border-l-2 border-neon-blue/30"
-                    initial={{ opacity: 0, x: 20 }}
+                    className="bg-bg-card/50 px-5 py-3 border-l-2 border-neon-blue/30"
+                    initial={{ opacity: 0, x: 30 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 2 + idx * 0.1 }}
+                    transition={{ delay: 2 + idx * 0.2 }}
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">{insight.emoji}</span>
-                      <span className="text-text-muted text-xs uppercase">{insight.label}</span>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-text-muted text-xs uppercase tracking-wider">{insight.label}</span>
+                      <span className={`text-lg font-bold capitalize ${insight.color}`}>{insight.value}</span>
                     </div>
-                    <p className="text-xl font-bold text-white capitalize">{insight.value}</p>
-                    <p className="text-text-muted text-xs">{insight.desc}</p>
+                    <p className="text-text-muted text-xs mt-1">{insight.desc}</p>
                   </motion.div>
                 ))}
               </div>
