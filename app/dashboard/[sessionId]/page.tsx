@@ -395,9 +395,50 @@ export default function DashboardPage() {
     const numProfiles = Math.max(1, profilesWithEnoughData.length);
     avgFirstHalfCats = Math.round((avgFirstHalfCats / numProfiles) * 10) / 10;
     avgSecondHalfCats = Math.round((avgSecondHalfCats / numProfiles) * 10) / 10;
+    const narrowingHappened = avgSecondHalfCats < avgFirstHalfCats;
 
     // 6. Most Free — person who escaped the bubble most (most diverse)
     const mostFree = [...personProfiles].filter(p => p.totalLikes > 3).sort((a, b) => a.concentration - b.concentration)[0];
+
+    // 7. Zero in Common — pairs with literally zero shared liked content
+    const allSeenSets = participantList.map((p) => {
+      const choices = p.choices ? Object.values(p.choices) : [];
+      return new Set(choices.filter((c: Choice) => c.action === 'like').map((c: Choice) => c.contentId));
+    });
+    let zeroPairs = 0, totalPairs = 0;
+    for (let i = 0; i < allSeenSets.length; i++) {
+      for (let j = i + 1; j < allSeenSets.length; j++) {
+        totalPairs++;
+        let shared = false;
+        for (const id of allSeenSets[i]) {
+          if (allSeenSets[j].has(id)) { shared = true; break; }
+        }
+        if (!shared && allSeenSets[i].size > 0 && allSeenSets[j].size > 0) zeroPairs++;
+      }
+    }
+    const zeroPairsPct = totalPairs > 0 ? Math.round((zeroPairs / totalPairs) * 100) : 0;
+
+    // 8. The Rabbit Hole — what % of the last 10 cards were from a person's #1 category (avg)
+    let rabbitHoleAvg = 0;
+    const rabbitHoleProfiles = personProfiles.filter(p => p.totalChoices >= 15);
+    for (const p of rabbitHoleProfiles) {
+      const choices = Object.values(participantList.find(pp => pp.odId === p.odId)?.choices || {}) as Choice[];
+      const lastN = choices.slice(-10);
+      const lastLikes = lastN.filter((c: Choice) => c.action === 'like');
+      const topInLast = lastLikes.filter((c: Choice) => {
+        const ct = contentPool.find(item => item.id === c.contentId);
+        return ct ? ct.category.split('_')[0] === p.topCat : false;
+      }).length;
+      rabbitHoleAvg += lastN.length > 0 ? topInLast / lastN.length : 0;
+    }
+    rabbitHoleAvg = rabbitHoleProfiles.length > 0 ? Math.round((rabbitHoleAvg / rabbitHoleProfiles.length) * 100) : 0;
+
+    // 9. Echo Chamber — % of people whose top category dominated >50% of their feed
+    const echoChamberCount = personProfiles.filter(p => p.concentration > 50 && p.totalLikes >= 5).length;
+    const echoChamberPct = personProfiles.length > 0 ? Math.round((echoChamberCount / personProfiles.length) * 100) : 0;
+
+    // Worlds Apart overlap %
+    const overlapPct = Math.round(lowestSim * 100);
 
     // Category color mapping for cluster badges
     const categoryColorMap: Record<string, { bg: string; text: string; border: string; glow: string }> = {
@@ -427,15 +468,22 @@ export default function DashboardPage() {
       {
         label: 'WORLDS APART',
         value: worldsApartA && worldsApartB ? `${worldsApartA} & ${worldsApartB}` : '—',
-        desc: 'Same app, completely different reality',
+        desc: `Only ${overlapPct}% overlap — same app, different reality`,
         accent: '#00F0FF',
       },
-      {
-        label: 'THE NARROWING',
-        value: `${avgFirstHalfCats} → ${avgSecondHalfCats}`,
-        desc: 'Topics seen: start vs end of feed',
-        accent: '#FF6B00',
-      },
+      narrowingHappened
+        ? {
+            label: 'THE NARROWING',
+            value: `${avgFirstHalfCats} → ${avgSecondHalfCats}`,
+            desc: 'Topics seen: start vs end of feed',
+            accent: '#FF6B00',
+          }
+        : {
+            label: 'ECHO CHAMBER',
+            value: `${echoChamberPct}%`,
+            desc: 'of people had >50% of their feed in one topic',
+            accent: '#FF6B00',
+          },
       {
         label: 'BIGGEST BUBBLE',
         value: biggestBubble ? biggestBubble[0] : '—',
@@ -448,7 +496,36 @@ export default function DashboardPage() {
         desc: 'Categories the average person never saw',
         accent: '#FFE500',
       },
+      {
+        label: 'ZERO IN COMMON',
+        value: `${zeroPairsPct}%`,
+        desc: 'of people pairs shared no liked content',
+        accent: '#FF00E5',
+      },
+      {
+        label: 'THE RABBIT HOLE',
+        value: `${rabbitHoleAvg}%`,
+        desc: 'of your last 10 cards were your #1 topic',
+        accent: '#00FF88',
+      },
+      {
+        label: 'ECHO CHAMBER',
+        value: `${echoChamberPct}%`,
+        desc: 'of people had >50% of feed in one topic',
+        accent: '#FF4488',
+      },
     ];
+
+    // If narrowing happened, we already show it in slot 4, so replace the duplicate echo chamber
+    // If narrowing didn't happen, slot 4 is echo chamber, so slot 9 becomes THE NARROWING (shows no change)
+    if (!narrowingHappened) {
+      insights[8] = {
+        label: 'TOTAL SWIPES',
+        value: (session.stats?.totalChoicesMade || 0).toLocaleString(),
+        desc: `${participantCount > 0 ? Math.round((session.stats?.totalChoicesMade || 0) / participantCount) : 0} per person`,
+        accent: '#FF4488',
+      };
+    }
 
     return (
       <div className="h-screen bg-bg-dark overflow-hidden flex flex-col relative">
@@ -597,6 +674,7 @@ export default function DashboardPage() {
                     <div className="flex flex-wrap gap-4 mt-4">
                       {clusters.map((cluster, idx) => {
                         const catColor = categoryColorMap[cluster.dominantCategories[0]] || categoryColorMap.tech;
+                        const topicList = cluster.dominantCategories.slice(0, 3).join(', ');
                         return (
                           <motion.div
                             key={cluster.id}
@@ -608,6 +686,7 @@ export default function DashboardPage() {
                           >
                             <span className={`font-black text-2xl ${catColor.text}`}>{cluster.label}</span>
                             <span className="text-text-muted text-lg ml-3">{cluster.memberIds.length} people</span>
+                            <span className="text-text-muted text-sm ml-2 capitalize">({topicList})</span>
                           </motion.div>
                         );
                       })}
