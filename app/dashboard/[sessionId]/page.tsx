@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const personalitiesRef = useRef<Record<string, string[]>>({}); // Store participant "personalities"
   const processIndexRef = useRef(0); // Rotate through participants
   const sessionRef = useRef<Session | null>(null); // Always have fresh session data
+  const prevPositionsRef = useRef<Record<string, { x: number; y: number }>>({}); // Delta position tracking
 
   // Keep sessionRef updated
   useEffect(() => {
@@ -147,7 +148,7 @@ export default function DashboardPage() {
             contentId: randomContent.id,
             action: Math.random() < likeChance ? 'like' : 'skip',
             timestamp: Date.now(),
-          });
+          }, choices.length + 1);
         }
       }
     };
@@ -177,7 +178,8 @@ export default function DashboardPage() {
       setSharedReality(reality);
 
       const positions = calculateAllPositions(participants);
-      await updateAllPositions(sessionId, positions);
+      await updateAllPositions(sessionId, positions, prevPositionsRef.current);
+      prevPositionsRef.current = positions;
 
       const totalCards = session.config?.cardsPerParticipant || 40;
       await updateSessionStats(sessionId, {

@@ -103,7 +103,8 @@ export default function JoinPage() {
       setChoices((prev: Choice[]) => [...prev, choice]);
 
       try {
-        await recordChoice(sessionId, odId, choice);
+        const nextCardCount = cardCount + 1;
+        await recordChoice(sessionId, odId, choice, nextCardCount);
       } catch (error) {
         console.error('Failed to record:', error);
       }
