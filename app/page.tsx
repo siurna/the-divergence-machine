@@ -1,13 +1,29 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { createSession } from '@/lib/firebase';
 
 export default function Home() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [sessionCode, setSessionCode] = useState('');
   const [glitchText, setGlitchText] = useState(false);
+  const [creatingTest, setCreatingTest] = useState(false);
+
+  // Auto-create test game with debug mode
+  useEffect(() => {
+    if (searchParams.has('newTestGame') && !creatingTest) {
+      setCreatingTest(true);
+      createSession().then((sessionId) => {
+        router.replace(`/dashboard/${sessionId}?debug=true`);
+      }).catch((err) => {
+        console.error('Failed to create test game:', err);
+        setCreatingTest(false);
+      });
+    }
+  }, [searchParams, creatingTest, router]);
 
   // Periodic glitch effect
   useEffect(() => {
@@ -24,6 +40,19 @@ export default function Home() {
       router.push(`/join/${sessionCode.trim().toUpperCase()}`);
     }
   };
+
+  if (creatingTest) {
+    return (
+      <div className="min-h-screen bg-bg-dark flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-2xl font-mono text-neon-blue animate-pulse mb-4">
+            INITIALIZING TEST GAME...
+          </div>
+          <div className="text-text-muted font-mono text-sm">Creating session with debug mode</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-bg-dark cyber-grid scanlines flex flex-col items-center justify-center p-6 relative overflow-hidden">
