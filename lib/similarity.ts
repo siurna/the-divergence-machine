@@ -301,24 +301,40 @@ export function calculateClusterCentroid(
   };
 }
 
-// Cluster label mapping
-const clusterLabels: Record<string, string> = {
-  politics: 'The News Junkies',
-  tech: 'The Tech Prophets',
-  entertainment: 'The Entertainers',
-  science: 'The Curious Minds',
-  sports: 'The Sports Fans',
-  lifestyle: 'The Life Optimizers',
-  finance: 'The Money Minds',
-  animals: 'The Animal Lovers',
+// Cluster label pool — multiple names per category so duplicates don't collide.
+// generateClusterLabel picks the first unused name for a given category.
+const clusterLabelPool: Record<string, string[]> = {
+  politics: ['The News Junkies', 'The Politicos', 'The Pundits', 'The Watchdogs'],
+  tech: ['The Tech Prophets', 'The Futurists', 'The Disruptors', 'The Hackers'],
+  entertainment: ['The Entertainers', 'The Pop Culture Buffs', 'The Binge Watchers', 'The Fanatics'],
+  science: ['The Curious Minds', 'The Lab Rats', 'The Explorers', 'The Skeptics'],
+  sports: ['The Sports Fans', 'The Athletes', 'The MVPs', 'The Underdogs'],
+  lifestyle: ['The Life Optimizers', 'The Trendsetters', 'The Wellness Crew', 'The Wanderers'],
+  finance: ['The Money Minds', 'The Traders', 'The Bulls & Bears', 'The Investors'],
+  animals: ['The Animal Lovers', 'The Wildlife Watchers', 'The Pet People', 'The Nature Crew'],
 };
 
-// Generate cluster label based on dominant categories
-// dominantCategories now contains subcategory names like 'tech_optimist'
-export function generateClusterLabel(dominantCategories: string[]): string {
+// Generate cluster label based on dominant categories.
+// usedLabels tracks already-assigned labels so that two clusters with
+// the same dominant category (e.g. two sports clusters) get different names.
+export function generateClusterLabel(
+  dominantCategories: string[],
+  usedLabels?: Set<string>
+): string {
   if (dominantCategories.length === 0) return 'The Eclectics';
   const group = dominantCategories[0].split('_')[0];
-  return clusterLabels[group] || 'The Eclectics';
+  const pool = clusterLabelPool[group] || ['The Eclectics'];
+
+  for (const label of pool) {
+    if (!usedLabels || !usedLabels.has(label)) {
+      usedLabels?.add(label);
+      return label;
+    }
+  }
+  // All names exhausted — fallback with number
+  const fallback = `${pool[0]} II`;
+  usedLabels?.add(fallback);
+  return fallback;
 }
 
 // Detect clusters among participants using category cosine similarity
@@ -330,6 +346,7 @@ export function detectClusters(
 
   const clusters: ClusterInfo[] = [];
   const assigned = new Set<string>();
+  const usedLabels = new Set<string>();
 
   // Pre-compute category vectors for all participants
   const vectors = new Map<string, number[]>();
@@ -361,7 +378,7 @@ export function detectClusters(
       const dominantCategories = findDominantCategories(cluster, participants);
       clusters.push({
         id: `cluster_${clusters.length}`,
-        label: generateClusterLabel(dominantCategories),
+        label: generateClusterLabel(dominantCategories, usedLabels),
         memberIds: cluster,
         centroid: calculateClusterCentroid(cluster, participants),
         dominantCategories,
@@ -381,6 +398,7 @@ export function detectPositionClusters(
   const participantList = Object.values(participants).filter((p) => p.isActive !== false);
   const clusters: ClusterInfo[] = [];
   const assigned = new Set<string>();
+  const usedLabels = new Set<string>();
 
   for (const p of participantList) {
     if (assigned.has(p.odId)) continue;
@@ -405,7 +423,7 @@ export function detectPositionClusters(
       const dominantCategories = findDominantCategories(group, participants);
       clusters.push({
         id: `cluster_${clusters.length}`,
-        label: generateClusterLabel(dominantCategories),
+        label: generateClusterLabel(dominantCategories, usedLabels),
         memberIds: group,
         centroid: calculateClusterCentroid(group, participants),
         dominantCategories,

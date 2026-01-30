@@ -1143,34 +1143,6 @@ function BubbleVisualization({
                 exit={{ opacity: 0, scale: 0.5 }}
                 transition={{ duration: 1 }}
               />
-              {/* Cluster label */}
-              {cluster.label && (
-                <motion.div
-                  className="absolute pointer-events-none text-center z-10"
-                  style={{
-                    left: pixelPos.x,
-                    top: pixelPos.y - pixelRadius - 10,
-                    transform: 'translate(-50%, -100%)',
-                  }}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 0.9 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 1 }}
-                >
-                  <span
-                    className="font-title font-bold text-sm px-3 py-1 rounded-sm"
-                    style={{
-                      color: cluster.color,
-                      backgroundColor: `${cluster.color}15`,
-                      border: `1px solid ${cluster.color}30`,
-                      textShadow: `0 0 10px ${cluster.color}`,
-                    }}
-                  >
-                    {cluster.label}
-                  </span>
-                  <span className="text-text-muted text-xs ml-2">{cluster.memberCount}</span>
-                </motion.div>
-              )}
             </React.Fragment>
           );
         })}
