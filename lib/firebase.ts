@@ -197,17 +197,18 @@ export async function addParticipant(sessionId: string, name: string): Promise<s
 export async function recordChoice(
   sessionId: string,
   odId: string,
-  choice: Choice
+  choice: Choice,
+  cardIndex?: number
 ): Promise<void> {
   const database = getDb();
   const choicesRef = ref(database, `sessions/${sessionId}/participants/${odId}/choices`);
   await push(choicesRef, choice);
 
-  // Update current card index
-  const indexRef = ref(database, `sessions/${sessionId}/participants/${odId}/currentCardIndex`);
-  const snapshot = await get(ref(database, `sessions/${sessionId}/participants/${odId}/choices`));
-  const choiceCount = snapshot.exists() ? Object.keys(snapshot.val()).length : 0;
-  await set(indexRef, choiceCount);
+  // Update current card index if provided (avoids an extra get() round-trip)
+  if (cardIndex !== undefined) {
+    const indexRef = ref(database, `sessions/${sessionId}/participants/${odId}/currentCardIndex`);
+    await set(indexRef, cardIndex);
+  }
 }
 
 // Update participant position
@@ -222,18 +223,30 @@ export async function updateParticipantPosition(
 }
 
 // Update multiple participant positions at once
+// If previousPositions provided, only writes positions that moved > threshold
 export async function updateAllPositions(
   sessionId: string,
-  positions: Record<string, Position>
+  positions: Record<string, Position>,
+  previousPositions?: Record<string, Position>,
+  threshold: number = 1.5
 ): Promise<void> {
   const database = getDb();
   const updates: Record<string, Position> = {};
 
   for (const [odId, position] of Object.entries(positions)) {
+    if (previousPositions) {
+      const prev = previousPositions[odId];
+      if (prev) {
+        const dist = Math.abs(position.x - prev.x) + Math.abs(position.y - prev.y);
+        if (dist < threshold) continue; // Skip — hasn't moved enough
+      }
+    }
     updates[`sessions/${sessionId}/participants/${odId}/position`] = position;
   }
 
-  await update(ref(database), updates);
+  if (Object.keys(updates).length > 0) {
+    await update(ref(database), updates);
+  }
 }
 
 // Update game state

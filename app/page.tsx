@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { createSession } from '@/lib/firebase';
+import { createSession, sessionExists } from '@/lib/firebase';
 
 export default function Home() {
   const router = useRouter();
@@ -11,6 +11,8 @@ export default function Home() {
   const [sessionCode, setSessionCode] = useState('');
   const [glitchText, setGlitchText] = useState(false);
   const [creatingTest, setCreatingTest] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [codeError, setCodeError] = useState('');
 
   // Auto-create test game with debug mode
   useEffect(() => {
@@ -34,10 +36,24 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleJoinSession = (e: React.FormEvent) => {
+  const handleJoinSession = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (sessionCode.trim()) {
-      router.push(`/join/${sessionCode.trim().toUpperCase()}`);
+    const code = sessionCode.trim().toUpperCase();
+    if (!code) return;
+
+    setCodeError('');
+    setValidating(true);
+    try {
+      const exists = await sessionExists(code);
+      if (exists) {
+        router.push(`/join/${code}`);
+      } else {
+        setCodeError('Session not found');
+      }
+    } catch {
+      setCodeError('Connection error — try again');
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -67,12 +83,12 @@ export default function Home() {
       >
         {/* Title */}
         <motion.h1
-          className={`text-5xl md:text-7xl font-black text-white mb-2 tracking-tight ${glitchText ? 'animate-flicker' : ''}`}
+          className={`text-5xl md:text-7xl font-title font-bold text-white mb-2 tracking-tight ${glitchText ? 'animate-flicker' : ''}`}
         >
           <span className="text-glow-cyan">MAKE YOUR OWN</span>
         </motion.h1>
         <motion.h1
-          className="text-5xl md:text-7xl font-black mb-6 tracking-tight"
+          className="text-5xl md:text-7xl font-title font-bold mb-6 tracking-tight"
         >
           <span className="text-glow-pink text-neon-pink">BUBBLE</span>
         </motion.h1>
@@ -89,43 +105,38 @@ export default function Home() {
             <input
               type="text"
               value={sessionCode}
-              onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-              placeholder="SESSION CODE"
+              onChange={(e) => { setSessionCode(e.target.value.toUpperCase()); setCodeError(''); }}
+              placeholder="CODE"
               maxLength={6}
-              className="w-full px-8 py-6 bg-bg-card/80 border-2 border-neon-blue/50 rounded-none
-                       text-white placeholder-text-muted font-mono text-4xl md:text-5xl text-center
-                       focus:outline-none focus:border-neon-blue focus:shadow-neon-blue
-                       uppercase tracking-[0.5em] transition-all"
+              className={`w-full px-8 py-6 bg-bg-card/80 border-2 rounded-none
+                       text-white placeholder-text-muted/40 font-title text-4xl md:text-5xl text-center
+                       focus:outline-none focus:shadow-neon-blue
+                       uppercase tracking-[0.5em] transition-all
+                       ${codeError ? 'border-danger/70 focus:border-danger' : 'border-neon-blue/50 focus:border-neon-blue'}`}
               autoFocus
             />
-            <div className="absolute inset-0 pointer-events-none border-2 border-neon-blue/20
-                          translate-x-1 translate-y-1" />
+            <div className={`absolute inset-0 pointer-events-none border-2 translate-x-1 translate-y-1
+                          ${codeError ? 'border-danger/20' : 'border-neon-blue/20'}`} />
           </div>
+
+          {codeError && (
+            <p className="text-danger font-mono text-sm">{codeError}</p>
+          )}
 
           <motion.button
             type="submit"
-            disabled={!sessionCode.trim()}
-            whileHover={{ scale: sessionCode.trim() ? 1.02 : 1 }}
-            whileTap={{ scale: sessionCode.trim() ? 0.98 : 1 }}
-            className={`w-full py-5 text-2xl font-bold uppercase tracking-widest transition-all
-                      ${sessionCode.trim()
+            disabled={!sessionCode.trim() || validating}
+            whileHover={{ scale: sessionCode.trim() && !validating ? 1.02 : 1 }}
+            whileTap={{ scale: sessionCode.trim() && !validating ? 0.98 : 1 }}
+            className={`w-full py-5 text-2xl font-title font-bold uppercase tracking-widest transition-all
+                      ${sessionCode.trim() && !validating
                         ? 'bg-gradient-to-r from-neon-blue to-neon-pink text-white shadow-neon-blue hover:shadow-neon-pink'
                         : 'bg-bg-card text-text-muted cursor-not-allowed'
                       }`}
           >
-            {sessionCode.trim() ? '[ ENTER ]' : '[ WAITING FOR CODE ]'}
+            {validating ? '[ CHECKING... ]' : sessionCode.trim() ? '[ ENTER ]' : '[ WAITING FOR CODE ]'}
           </motion.button>
         </form>
-
-        {/* Footer */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-16 text-sm text-text-muted font-mono"
-        >
-          {'>'} FILTER_BUBBLE_DEMONSTRATION_v1.0
-        </motion.p>
       </motion.div>
     </div>
   );

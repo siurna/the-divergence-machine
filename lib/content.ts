@@ -566,6 +566,33 @@ export function getCategoryGroup(category: ContentCategory): string {
   return category.split('_')[0];
 }
 
+// Get display name for a subcategory (e.g., 'tech_optimist' → 'Tech Optimism')
+export function getSubcategoryDisplayName(subcategory: string): string {
+  const names: Record<string, string> = {
+    politics_left: 'Left Politics',
+    politics_right: 'Right Politics',
+    politics_center: 'Centrist Politics',
+    tech_optimist: 'Tech Optimism',
+    tech_pessimist: 'Tech Criticism',
+    entertainment_celebrity: 'Celebrity News',
+    entertainment_movies: 'Movies & TV',
+    entertainment_gaming: 'Gaming',
+    science_climate: 'Climate Science',
+    science_space: 'Space',
+    science_health: 'Health Science',
+    sports_mainstream: 'Mainstream Sports',
+    sports_niche: 'Niche Sports',
+    lifestyle_fitness: 'Fitness',
+    lifestyle_food: 'Food & Cooking',
+    lifestyle_travel: 'Travel',
+    finance_crypto: 'Crypto',
+    finance_traditional: 'Traditional Finance',
+    animals_cute: 'Cute Animals',
+    animals_wild: 'Wildlife',
+  };
+  return names[subcategory] || subcategory;
+}
+
 // Get color for a category
 export function getCategoryColor(categoryGroup: string): string {
   const colors: Record<string, string> = {
@@ -709,8 +736,11 @@ export function getNextRecommendedCard(
       groupWeights[group] = 0.05;
     } else {
       // Liked at least once: boost with compounding amplification
-      // More likes = exponentially more likely to see more
-      groupWeights[group] = likes * amplification - skips * 0.5;
+      // More likes = exponentially more likely to see more.
+      // Skips push back at 1.5x weight — sustained skipping CAN loosen
+      // the bubble, but it takes real effort (just like real platforms).
+      // e.g. 3 likes at amp=4: 12 pts. Need ~8 skips to escape (12/1.5).
+      groupWeights[group] = likes * amplification - skips * 1.5;
       // Floor at 0.1 so categories can still occasionally appear
       groupWeights[group] = Math.max(0.1, groupWeights[group]);
     }
