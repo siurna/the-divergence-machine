@@ -14,14 +14,16 @@ export default function Home() {
   const [validating, setValidating] = useState(false);
   const [codeError, setCodeError] = useState('');
 
-  // Auto-create test game with debug mode
+  // Auto-create game via query params
   useEffect(() => {
-    if (searchParams.has('newTestGame') && !creatingTest) {
+    const wantsBots = searchParams.has('newGameBots');
+    const wantsNew = searchParams.has('newGame') || wantsBots;
+    if (wantsNew && !creatingTest) {
       setCreatingTest(true);
       createSession().then((sessionId) => {
-        router.replace(`/dashboard/${sessionId}?debug=true`);
+        router.replace(`/dashboard/${sessionId}${wantsBots ? '?debug=true' : ''}`);
       }).catch((err) => {
-        console.error('Failed to create test game:', err);
+        console.error('Failed to create game:', err);
         setCreatingTest(false);
       });
     }
@@ -62,9 +64,9 @@ export default function Home() {
       <div className="min-h-screen bg-bg-dark flex items-center justify-center">
         <div className="text-center">
           <div className="text-2xl font-mono text-neon-blue animate-pulse mb-4">
-            INITIALIZING TEST GAME...
+            INITIALIZING GAME...
           </div>
-          <div className="text-text-muted font-mono text-sm">Creating session with debug mode</div>
+          <div className="text-text-muted font-mono text-sm">Creating session</div>
         </div>
       </div>
     );
