@@ -109,7 +109,7 @@ export default function Home() {
               placeholder="CODE"
               maxLength={6}
               className={`w-full px-8 py-6 bg-bg-card/80 border-2 rounded-none
-                       text-white placeholder-text-muted/40 font-code text-4xl md:text-5xl text-center
+                       text-white placeholder-text-muted/40 font-title text-4xl md:text-5xl text-center
                        focus:outline-none focus:shadow-neon-blue
                        uppercase tracking-[0.5em] transition-all
                        ${codeError ? 'border-danger/70 focus:border-danger' : 'border-neon-blue/50 focus:border-neon-blue'}`}

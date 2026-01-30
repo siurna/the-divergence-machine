@@ -265,7 +265,7 @@ export default function JoinPage() {
               {isJoining ? 'JOINING...' : '[ JOIN ]'}
             </button>
           </form>
-          <p className="mt-8 text-text-muted font-code text-sm">Session: {sessionId}</p>
+          <p className="mt-8 text-text-muted font-title text-sm">Session: {sessionId}</p>
           <p className="text-text-muted text-sm">{participantCount} waiting</p>
         </motion.div>
       </div>

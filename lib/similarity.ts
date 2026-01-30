@@ -10,38 +10,38 @@ import {
 import { contentPool, getCategoryGroup } from './content';
 
 // Category positions on the 2D visualization plane
-// Groups are placed as interior clusters distributed across the space.
-// Subcategories within each group are close together (±3-5 units) to form
-// visible organic clusters rather than outlining the viewport edges.
+// Groups are placed as an irregular organic scatter — NOT on a rectangle border.
+// Animals and Finance are pulled into the center region to break the rectangular
+// outline that forms when all 8 groups sit at compass points.
 export const categoryPositions: CategoryPositions = {
-  // Politics cluster — top left
-  politics_left: { x: 17, y: 20 },
-  politics_right: { x: 23, y: 20 },
-  politics_center: { x: 20, y: 26 },
-  // Tech cluster — top center
-  tech_optimist: { x: 47, y: 16 },
-  tech_pessimist: { x: 53, y: 20 },
-  // Science cluster — top right
-  science_climate: { x: 77, y: 20 },
-  science_space: { x: 83, y: 20 },
-  science_health: { x: 80, y: 26 },
-  // Finance cluster — right
-  finance_crypto: { x: 80, y: 47 },
-  finance_traditional: { x: 84, y: 53 },
-  // Sports cluster — bottom right
-  sports_mainstream: { x: 77, y: 76 },
-  sports_niche: { x: 83, y: 80 },
-  // Entertainment cluster — bottom center
-  entertainment_celebrity: { x: 47, y: 80 },
-  entertainment_movies: { x: 53, y: 80 },
-  entertainment_gaming: { x: 50, y: 85 },
-  // Lifestyle cluster — bottom left
-  lifestyle_fitness: { x: 17, y: 76 },
-  lifestyle_food: { x: 23, y: 76 },
-  lifestyle_travel: { x: 20, y: 82 },
-  // Animals cluster — left
-  animals_cute: { x: 16, y: 47 },
-  animals_wild: { x: 20, y: 53 },
+  // Politics cluster — northwest
+  politics_left: { x: 20, y: 25 },
+  politics_right: { x: 26, y: 22 },
+  politics_center: { x: 23, y: 30 },
+  // Tech cluster — north, slightly east of center
+  tech_optimist: { x: 55, y: 18 },
+  tech_pessimist: { x: 60, y: 23 },
+  // Science cluster — northeast, pulled inward
+  science_climate: { x: 73, y: 30 },
+  science_space: { x: 78, y: 26 },
+  science_health: { x: 75, y: 35 },
+  // Animals cluster — center-west (breaks rectangular border)
+  animals_cute: { x: 28, y: 46 },
+  animals_wild: { x: 33, y: 50 },
+  // Finance cluster — center-east (breaks rectangular border)
+  finance_crypto: { x: 65, y: 48 },
+  finance_traditional: { x: 70, y: 44 },
+  // Lifestyle cluster — southwest
+  lifestyle_fitness: { x: 22, y: 65 },
+  lifestyle_food: { x: 27, y: 62 },
+  lifestyle_travel: { x: 24, y: 70 },
+  // Entertainment cluster — south
+  entertainment_celebrity: { x: 45, y: 72 },
+  entertainment_movies: { x: 50, y: 76 },
+  entertainment_gaming: { x: 47, y: 80 },
+  // Sports cluster — southeast
+  sports_mainstream: { x: 70, y: 68 },
+  sports_niche: { x: 75, y: 72 },
 };
 
 // Build choice vector for a participant
@@ -364,6 +364,50 @@ export function detectClusters(
         label: generateClusterLabel(dominantCategories),
         memberIds: cluster,
         centroid: calculateClusterCentroid(cluster, participants),
+        dominantCategories,
+      });
+    }
+  }
+
+  return clusters;
+}
+
+// Detect clusters based on position proximity — matches the live visualization
+// Use this for reveal so "THE BUBBLES THAT FORMED" matches what people saw on screen
+export function detectPositionClusters(
+  participants: Record<string, Participant>,
+  threshold: number = 20
+): ClusterInfo[] {
+  const participantList = Object.values(participants).filter((p) => p.isActive !== false);
+  const clusters: ClusterInfo[] = [];
+  const assigned = new Set<string>();
+
+  for (const p of participantList) {
+    if (assigned.has(p.odId)) continue;
+
+    const group: string[] = [p.odId];
+    assigned.add(p.odId);
+
+    const pos1 = p.position || { x: 50, y: 50 };
+
+    for (const other of participantList) {
+      if (assigned.has(other.odId)) continue;
+      const pos2 = other.position || { x: 50, y: 50 };
+      const dist = Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
+
+      if (dist < threshold) {
+        group.push(other.odId);
+        assigned.add(other.odId);
+      }
+    }
+
+    if (group.length >= 2) {
+      const dominantCategories = findDominantCategories(group, participants);
+      clusters.push({
+        id: `cluster_${clusters.length}`,
+        label: generateClusterLabel(dominantCategories),
+        memberIds: group,
+        centroid: calculateClusterCentroid(group, participants),
         dominantCategories,
       });
     }

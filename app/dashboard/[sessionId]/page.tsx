@@ -19,6 +19,7 @@ import {
   calculateTotalChoices,
   calculateAverageProgress,
   detectClusters,
+  detectPositionClusters,
   findMostUnique,
   findMostMainstream,
 } from '@/lib/similarity';
@@ -271,7 +272,10 @@ export default function DashboardPage() {
     await updateGameState(sessionId, 'reveal');
     if (session?.participants) {
       const participantList = Object.values(session.participants) as Participant[];
-      const detectedClusters = detectClusters(session.participants, 0.3);
+      // Use position-based clustering so "BUBBLES THAT FORMED" matches what
+      // people saw on screen during gameplay (not cosine similarity which
+      // merges visually distinct groups into fewer mega-clusters).
+      const detectedClusters = detectPositionClusters(session.participants, 20);
       setClusters(detectedClusters);
       await updateSessionStats(sessionId, {
         sharedReality: calculateSharedReality(participantList),
@@ -547,12 +551,12 @@ export default function DashboardPage() {
               THE BUBBLES
             </h1>
             <div className="flex items-center justify-center gap-4 mt-1">
-              <span className="text-lg text-neon-blue"><span className="font-code">{participantCount}</span> people</span>
+              <span className="text-lg text-neon-blue font-bold">{participantCount} people</span>
               <span className="text-lg text-text-muted">→</span>
-              <span className="text-lg text-neon-pink"><span className="font-code">{clusters.length}</span> bubbles</span>
+              <span className="text-lg text-neon-pink font-bold">{clusters.length} bubbles</span>
               <span className="text-lg text-text-muted">→</span>
               <span className={`text-lg font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
-                <span className="font-code">{sharedReality}%</span> shared
+                {sharedReality}% shared
               </span>
             </div>
           </div>
@@ -602,7 +606,7 @@ export default function DashboardPage() {
           <div className="text-center">
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-4">
               <p className="text-text-muted text-2xl mb-2 font-title uppercase tracking-wider">Shared reality started at</p>
-              <p className="text-[120px] leading-none font-code font-bold text-glow-green text-neon-green">100%</p>
+              <p className="text-[160px] leading-none font-code font-bold text-glow-green text-neon-green">100%</p>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, scaleY: 0 }} animate={{ opacity: 1, scaleY: 1 }} transition={{ delay: 0.8, duration: 0.5 }} className="text-4xl text-text-muted mb-4">
@@ -611,18 +615,18 @@ export default function DashboardPage() {
 
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.5 }}>
               <p className="text-text-muted text-2xl mb-2 font-title uppercase tracking-wider">Now it&apos;s</p>
-              <p className={`text-[150px] leading-none font-code font-bold ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
+              <p className={`text-[200px] leading-none font-code font-bold ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
                 {sharedReality}%
               </p>
             </motion.div>
 
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-8 flex items-center justify-center gap-6 text-2xl">
               <span className="text-text-muted">
-                <span className="text-neon-blue font-code font-bold">{participantCount}</span> people
+                <span className="text-neon-blue font-bold">{participantCount}</span> people
               </span>
               <span className="text-text-muted">→</span>
               <span className="text-text-muted">
-                <span className="text-neon-pink font-code font-bold">{clusters.length}</span> {clusters.length === 1 ? 'bubble' : 'bubbles'}
+                <span className="text-neon-pink font-bold">{clusters.length}</span> {clusters.length === 1 ? 'bubble' : 'bubbles'}
               </span>
             </motion.div>
           </div>
@@ -646,12 +650,12 @@ export default function DashboardPage() {
               <span className="text-glow-cyan text-white">WHAT THE ALGORITHM DID</span>
             </h1>
             <div className="flex items-center justify-center gap-4 mt-3">
-              <span className="text-xl text-neon-blue"><span className="font-code">{participantCount}</span> people</span>
+              <span className="text-xl text-neon-blue font-bold">{participantCount} people</span>
               <span className="text-xl text-text-muted">→</span>
-              <span className="text-xl text-neon-pink"><span className="font-code">{clusters.length}</span> bubbles</span>
+              <span className="text-xl text-neon-pink font-bold">{clusters.length} bubbles</span>
               <span className="text-xl text-text-muted">→</span>
               <span className={`text-xl font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
-                <span className="font-code">{sharedReality}%</span> shared reality
+                {sharedReality}% shared reality
               </span>
             </div>
           </motion.div>
@@ -791,7 +795,7 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-text-muted text-xl mb-2">code:</p>
-              <p className="text-8xl font-code font-bold text-glow-pink text-neon-pink tracking-[0.3em]">{sessionId}</p>
+              <p className="text-8xl font-title font-bold text-glow-pink text-neon-pink tracking-[0.3em]">{sessionId}</p>
 
               <p className="mt-12 text-text-muted">Press SPACE to start • Q to toggle QR</p>
             </div>
