@@ -45,7 +45,10 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        code: ['watch-mn', 'sans-serif'],
+        title: ['hansson-stencil-mn', 'sans-serif'],
+        body: ['kallisto', 'sans-serif'],
+        sans: ['kallisto', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       boxShadow: {

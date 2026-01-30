@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const [sharedReality, setSharedReality] = useState(100);
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [showQR, setShowQR] = useState(true);
+  const [revealView, setRevealView] = useState<'insights' | 'bubbles'>('insights');
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const updateRef = useRef<NodeJS.Timeout | null>(null);
@@ -234,9 +235,14 @@ export default function DashboardPage() {
           break;
         case 'KeyR':
           if (session.gameState === 'playing' || session.gameState === 'paused') handleReveal();
+          else if (session.gameState === 'reveal') setRevealView('insights');
+          break;
+        case 'KeyB':
+          if (session.gameState === 'reveal') setRevealView(prev => prev === 'bubbles' ? 'insights' : 'bubbles');
           break;
         case 'Escape':
-          if (session.gameState === 'ended') handleReset();
+          if (session.gameState === 'reveal' && revealView === 'bubbles') setRevealView('insights');
+          else if (session.gameState === 'ended') handleReset();
           break;
         case 'KeyQ':
           setShowQR((prev) => !prev);
@@ -245,7 +251,7 @@ export default function DashboardPage() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [session?.gameState]);
+  }, [session?.gameState, revealView]);
 
   const handleStart = useCallback(async () => {
     await updateGameState(sessionId, 'playing');
@@ -261,6 +267,7 @@ export default function DashboardPage() {
   }, [sessionId]);
 
   const handleReveal = useCallback(async () => {
+    setRevealView('insights');
     await updateGameState(sessionId, 'reveal');
     if (session?.participants) {
       const participantList = Object.values(session.participants) as Participant[];
@@ -531,6 +538,36 @@ export default function DashboardPage() {
       };
     }
 
+    // Bubbles view — show the bubble visualization with preserved data
+    if (revealView === 'bubbles') {
+      return (
+        <div className="h-screen bg-bg-dark cyber-grid overflow-hidden flex flex-col relative">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 text-center">
+            <h1 className="font-title font-bold text-3xl text-white uppercase tracking-wider">
+              THE BUBBLES
+            </h1>
+            <div className="flex items-center justify-center gap-4 mt-1">
+              <span className="text-lg text-neon-blue"><span className="font-code">{participantCount}</span> people</span>
+              <span className="text-lg text-text-muted">→</span>
+              <span className="text-lg text-neon-pink"><span className="font-code">{clusters.length}</span> bubbles</span>
+              <span className="text-lg text-text-muted">→</span>
+              <span className={`text-lg font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
+                <span className="font-code">{sharedReality}%</span> shared
+              </span>
+            </div>
+          </div>
+          <div className="flex-1 relative">
+            <BubbleVisualization participants={participants} showClusters />
+          </div>
+          <div className="h-12 flex items-center justify-center text-text-muted text-sm">
+            Press <span className="font-code text-neon-blue mx-1">B</span> for insights
+            &nbsp;•&nbsp;
+            Press <span className="font-code text-neon-blue mx-1">R</span> for insights
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="h-screen bg-bg-dark overflow-hidden flex flex-col relative">
         {/* Ambient background glow */}
@@ -564,8 +601,8 @@ export default function DashboardPage() {
         >
           <div className="text-center">
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10 }} className="mb-4">
-              <p className="text-text-muted text-2xl mb-2 font-mono uppercase tracking-wider">Shared reality started at</p>
-              <p className="text-[120px] leading-none font-black text-glow-green text-neon-green">100%</p>
+              <p className="text-text-muted text-2xl mb-2 font-title uppercase tracking-wider">Shared reality started at</p>
+              <p className="text-[120px] leading-none font-code font-bold text-glow-green text-neon-green">100%</p>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, scaleY: 0 }} animate={{ opacity: 1, scaleY: 1 }} transition={{ delay: 0.8, duration: 0.5 }} className="text-4xl text-text-muted mb-4">
@@ -573,19 +610,19 @@ export default function DashboardPage() {
             </motion.div>
 
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 10, delay: 1.5 }}>
-              <p className="text-text-muted text-2xl mb-2 font-mono uppercase tracking-wider">Now it&apos;s</p>
-              <p className={`text-[150px] leading-none font-black ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
+              <p className="text-text-muted text-2xl mb-2 font-title uppercase tracking-wider">Now it&apos;s</p>
+              <p className={`text-[150px] leading-none font-code font-bold ${sharedReality < 40 ? 'text-glow-pink text-neon-pink' : 'text-glow-cyan text-warning'}`}>
                 {sharedReality}%
               </p>
             </motion.div>
 
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.5 }} className="mt-8 flex items-center justify-center gap-6 text-2xl">
-              <span className="text-text-muted font-mono">
-                <span className="text-neon-blue font-bold">{participantCount}</span> people
+              <span className="text-text-muted">
+                <span className="text-neon-blue font-code font-bold">{participantCount}</span> people
               </span>
               <span className="text-text-muted">→</span>
-              <span className="text-text-muted font-mono">
-                <span className="text-neon-pink font-bold">{clusters.length}</span> {clusters.length === 1 ? 'bubble' : 'bubbles'}
+              <span className="text-text-muted">
+                <span className="text-neon-pink font-code font-bold">{clusters.length}</span> {clusters.length === 1 ? 'bubble' : 'bubbles'}
               </span>
             </motion.div>
           </div>
@@ -605,21 +642,21 @@ export default function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 4.5, duration: 0.5 }}
           >
-            <h1 className="text-5xl font-black uppercase tracking-wider">
+            <h1 className="text-5xl font-title font-bold uppercase tracking-wider">
               <span className="text-glow-cyan text-white">WHAT THE ALGORITHM DID</span>
             </h1>
             <div className="flex items-center justify-center gap-4 mt-3">
-              <span className="text-xl font-mono text-neon-blue">{participantCount} people</span>
+              <span className="text-xl text-neon-blue"><span className="font-code">{participantCount}</span> people</span>
               <span className="text-xl text-text-muted">→</span>
-              <span className="text-xl font-mono text-neon-pink">{clusters.length} bubbles</span>
+              <span className="text-xl text-neon-pink"><span className="font-code">{clusters.length}</span> bubbles</span>
               <span className="text-xl text-text-muted">→</span>
-              <span className={`text-xl font-mono font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
-                {sharedReality}% shared reality
+              <span className={`text-xl font-bold ${sharedReality < 40 ? 'text-neon-pink' : 'text-warning'}`}>
+                <span className="font-code">{sharedReality}%</span> shared reality
               </span>
             </div>
           </motion.div>
 
-          {/* Insight cards — 2×3 grid, large and colorful */}
+          {/* Insight cards — 3×3 grid, large and colorful */}
           <div className="flex-1 flex items-center justify-center px-8">
             <div className="w-full max-w-7xl">
               <div className="grid grid-cols-3 gap-5">
@@ -638,12 +675,12 @@ export default function DashboardPage() {
                   >
                     <div className="p-6">
                       <span
-                        className="text-sm font-mono uppercase tracking-[0.2em] font-bold"
+                        className="text-sm font-title uppercase tracking-[0.2em] font-bold"
                         style={{ color: insight.accent }}
                       >
                         {insight.label}
                       </span>
-                      <p className="text-4xl font-black text-white mt-3 capitalize leading-tight">
+                      <p className="text-4xl font-bold text-white mt-3 capitalize leading-tight">
                         {insight.value}
                       </p>
                       <p className="text-lg text-text-muted mt-2">
@@ -672,7 +709,7 @@ export default function DashboardPage() {
                   transition={{ delay: 5.4, type: 'spring', damping: 20 }}
                 >
                   <div className="p-6">
-                    <span className="text-sm font-mono uppercase tracking-[0.2em] text-text-muted font-bold">
+                    <span className="text-sm font-title uppercase tracking-[0.2em] text-text-muted font-bold">
                       THE BUBBLES THAT FORMED
                     </span>
                     <div className="flex flex-wrap gap-4 mt-4">
@@ -689,7 +726,7 @@ export default function DashboardPage() {
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ delay: 5.5 + idx * 0.1 }}
                           >
-                            <span className={`font-black text-2xl ${catColor.text}`}>{cluster.label}</span>
+                            <span className={`font-title font-bold text-2xl ${catColor.text}`}>{cluster.label}</span>
                             <span className="text-text-muted text-lg ml-3">{cluster.memberIds.length} people</span>
                             <span className="text-text-muted text-sm ml-2">({topicList})</span>
                           </motion.div>
@@ -700,6 +737,11 @@ export default function DashboardPage() {
                 </motion.div>
               )}
             </div>
+          </div>
+
+          {/* Navigation hint */}
+          <div className="h-10 flex items-center justify-center text-text-muted text-sm z-20">
+            Press <span className="font-code text-neon-blue mx-1">B</span> to see bubbles
           </div>
         </motion.div>
 
@@ -712,7 +754,7 @@ export default function DashboardPage() {
     <div className="h-screen bg-bg-dark cyber-grid overflow-hidden flex flex-col relative">
       {/* Site URL */}
       <div className="absolute top-4 left-4 z-20">
-        <span className="site-url-large text-neon-blue font-mono">makeyourownbubble.com</span>
+        <span className="site-url-large text-neon-blue font-code">makeyourownbubble.com</span>
       </div>
 
       {/* Status header */}
@@ -721,14 +763,14 @@ export default function DashboardPage() {
           {session.gameState === 'waiting' ? 'WAITING' : session.gameState === 'playing' ? 'LIVE' : 'PAUSED'}
         </span>
         {(session.gameState === 'playing' || session.gameState === 'paused') && (
-          <span className="font-mono text-3xl text-neon-blue text-glow-cyan">{formatTime(timeRemaining)}</span>
+          <span className="font-code text-3xl text-neon-blue text-glow-cyan">{formatTime(timeRemaining)}</span>
         )}
       </div>
 
       {/* Participant count */}
       <div className="absolute top-4 right-4 z-20">
-        <span className="font-mono text-neon-pink text-glow-pink text-2xl">{participantCount}</span>
-        <span className="font-mono text-text-muted ml-2">connected</span>
+        <span className="font-code text-neon-pink text-glow-pink text-2xl">{participantCount}</span>
+        <span className="text-text-muted ml-2">connected</span>
       </div>
 
       {/* QR Code overlay */}
@@ -741,7 +783,7 @@ export default function DashboardPage() {
             className="absolute inset-0 z-30 bg-bg-dark/95 flex items-center justify-center"
           >
             <div className="text-center">
-              <h1 className="projector-text-xl text-glow-cyan mb-4">MAKE YOUR OWN BUBBLE</h1>
+              <h1 className="projector-text-xl font-title text-glow-cyan mb-4">MAKE YOUR OWN BUBBLE</h1>
               <p className="text-2xl text-text-muted mb-8">Scan to join</p>
 
               <div className="bg-white p-8 inline-block mb-8">
@@ -749,7 +791,7 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-text-muted text-xl mb-2">code:</p>
-              <p className="text-8xl font-black text-glow-pink text-neon-pink tracking-[0.3em]">{sessionId}</p>
+              <p className="text-8xl font-code font-bold text-glow-pink text-neon-pink tracking-[0.3em]">{sessionId}</p>
 
               <p className="mt-12 text-text-muted">Press SPACE to start • Q to toggle QR</p>
             </div>
@@ -766,8 +808,8 @@ export default function DashboardPage() {
       <div className="h-24 bg-bg-card/80 border-t border-neon-blue/30 flex items-center px-8">
         <div className="flex-1">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-text-muted uppercase tracking-wider">Shared Reality</span>
-            <span className={`font-mono text-4xl font-bold ${
+            <span className="font-title text-text-muted uppercase tracking-wider">Shared Reality</span>
+            <span className={`font-code text-4xl font-bold ${
               sharedReality > 60 ? 'text-neon-green text-glow-green' :
               sharedReality > 30 ? 'text-warning' : 'text-neon-pink text-glow-pink'
             }`}>
@@ -790,26 +832,26 @@ export default function DashboardPage() {
         {/* Control buttons */}
         <div className="ml-8 flex gap-4">
           {session.gameState === 'waiting' && (
-            <button onClick={handleStart} className="px-8 py-3 bg-neon-green text-black font-bold uppercase tracking-wider hover:shadow-neon-green transition-all">
+            <button onClick={handleStart} className="px-8 py-3 bg-neon-green text-black font-title font-bold uppercase tracking-wider hover:shadow-neon-green transition-all">
               START
             </button>
           )}
           {session.gameState === 'playing' && (
             <>
-              <button onClick={handlePause} className="px-6 py-3 bg-warning text-black font-bold uppercase tracking-wider">
+              <button onClick={handlePause} className="px-6 py-3 bg-warning text-black font-title font-bold uppercase tracking-wider">
                 PAUSE
               </button>
-              <button onClick={handleReveal} className="px-6 py-3 bg-neon-pink text-black font-bold uppercase tracking-wider hover:shadow-neon-pink transition-all">
+              <button onClick={handleReveal} className="px-6 py-3 bg-neon-pink text-black font-title font-bold uppercase tracking-wider hover:shadow-neon-pink transition-all">
                 REVEAL
               </button>
             </>
           )}
           {session.gameState === 'paused' && (
             <>
-              <button onClick={handleResume} className="px-6 py-3 bg-neon-green text-black font-bold uppercase tracking-wider">
+              <button onClick={handleResume} className="px-6 py-3 bg-neon-green text-black font-title font-bold uppercase tracking-wider">
                 RESUME
               </button>
-              <button onClick={handleReveal} className="px-6 py-3 bg-neon-pink text-black font-bold uppercase tracking-wider">
+              <button onClick={handleReveal} className="px-6 py-3 bg-neon-pink text-black font-title font-bold uppercase tracking-wider">
                 REVEAL
               </button>
             </>
@@ -905,7 +947,7 @@ function BubbleVisualization({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [liveClusters, setLiveClusters] = useState<{ center: { x: number; y: number }; radius: number; color: string; opacity: number }[]>([]);
+  const [liveClusters, setLiveClusters] = useState<{ center: { x: number; y: number }; radius: number; color: string; opacity: number; label: string; memberCount: number }[]>([]);
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -960,7 +1002,14 @@ function BubbleVisualization({
       }
     }
 
-    // Convert groups to cluster visualizations
+    // Category name lookup
+    const catNames: Record<string, string> = {
+      politics: 'Politics', tech: 'Tech', entertainment: 'Entertainment',
+      science: 'Science', sports: 'Sports', lifestyle: 'Lifestyle',
+      finance: 'Finance', animals: 'Animals',
+    };
+
+    // Convert groups to cluster visualizations with labels
     const newClusters = groups.map((group, idx) => {
       const avgX = group.reduce((sum, p) => sum + (p.position?.x || 50), 0) / group.length;
       const avgY = group.reduce((sum, p) => sum + (p.position?.y || 50), 0) / group.length;
@@ -969,11 +1018,32 @@ function BubbleVisualization({
         return Math.sqrt(Math.pow(pos.x - avgX, 2) + Math.pow(pos.y - avgY, 2));
       }));
 
+      // Determine dominant topics for this cluster
+      const catCounts: Record<string, number> = {};
+      for (const p of group) {
+        const choices = p.choices ? Object.values(p.choices) : [];
+        const likes = choices.filter((c: Choice) => c.action === 'like');
+        for (const c of likes) {
+          const content = contentPool.find(item => item.id === c.contentId);
+          if (content) {
+            const cat = content.category.split('_')[0];
+            catCounts[cat] = (catCounts[cat] || 0) + 1;
+          }
+        }
+      }
+      const topCats = Object.entries(catCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 2)
+        .map(([cat]) => catNames[cat] || cat);
+      const label = topCats.length > 0 ? topCats.join(' & ') : '';
+
       return {
         center: { x: avgX, y: avgY },
         radius: Math.max(maxDist + 10, 20),
         color: clusterColors[idx % clusterColors.length],
         opacity: Math.min(0.15 + group.length * 0.02, 0.3),
+        label,
+        memberCount: group.length,
       };
     });
 
@@ -1052,23 +1122,52 @@ function BubbleVisualization({
           const pixelRadius = (cluster.radius / 100) * Math.min(dimensions.width, dimensions.height);
 
           return (
-            <motion.div
-              key={`cluster-${idx}`}
-              className="absolute rounded-full cluster-blob pointer-events-none"
-              style={{
-                backgroundColor: cluster.color,
-                width: pixelRadius * 2,
-                height: pixelRadius * 2,
-                left: pixelPos.x - pixelRadius,
-                top: pixelPos.y - pixelRadius,
-                opacity: cluster.opacity,
-                filter: `blur(${pixelRadius / 3}px)`,
-              }}
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: cluster.opacity, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.5 }}
-              transition={{ duration: 1 }}
-            />
+            <React.Fragment key={`cluster-${idx}`}>
+              <motion.div
+                className="absolute rounded-full cluster-blob pointer-events-none"
+                style={{
+                  backgroundColor: cluster.color,
+                  width: pixelRadius * 2,
+                  height: pixelRadius * 2,
+                  left: pixelPos.x - pixelRadius,
+                  top: pixelPos.y - pixelRadius,
+                  opacity: cluster.opacity,
+                  filter: `blur(${pixelRadius / 3}px)`,
+                }}
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: cluster.opacity, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.5 }}
+                transition={{ duration: 1 }}
+              />
+              {/* Cluster label */}
+              {cluster.label && (
+                <motion.div
+                  className="absolute pointer-events-none text-center z-10"
+                  style={{
+                    left: pixelPos.x,
+                    top: pixelPos.y - pixelRadius - 10,
+                    transform: 'translate(-50%, -100%)',
+                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.9 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1 }}
+                >
+                  <span
+                    className="font-title font-bold text-sm px-3 py-1 rounded-sm"
+                    style={{
+                      color: cluster.color,
+                      backgroundColor: `${cluster.color}15`,
+                      border: `1px solid ${cluster.color}30`,
+                      textShadow: `0 0 10px ${cluster.color}`,
+                    }}
+                  >
+                    {cluster.label}
+                  </span>
+                  <span className="text-text-muted text-xs ml-2">{cluster.memberCount}</span>
+                </motion.div>
+              )}
+            </React.Fragment>
           );
         })}
       </AnimatePresence>

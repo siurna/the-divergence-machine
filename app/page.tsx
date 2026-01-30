@@ -83,12 +83,12 @@ export default function Home() {
       >
         {/* Title */}
         <motion.h1
-          className={`text-5xl md:text-7xl font-black text-white mb-2 tracking-tight ${glitchText ? 'animate-flicker' : ''}`}
+          className={`text-5xl md:text-7xl font-title font-bold text-white mb-2 tracking-tight ${glitchText ? 'animate-flicker' : ''}`}
         >
           <span className="text-glow-cyan">MAKE YOUR OWN</span>
         </motion.h1>
         <motion.h1
-          className="text-5xl md:text-7xl font-black mb-6 tracking-tight"
+          className="text-5xl md:text-7xl font-title font-bold mb-6 tracking-tight"
         >
           <span className="text-glow-pink text-neon-pink">BUBBLE</span>
         </motion.h1>
@@ -109,7 +109,7 @@ export default function Home() {
               placeholder="CODE"
               maxLength={6}
               className={`w-full px-8 py-6 bg-bg-card/80 border-2 rounded-none
-                       text-white placeholder-text-muted/40 font-mono text-4xl md:text-5xl text-center
+                       text-white placeholder-text-muted/40 font-code text-4xl md:text-5xl text-center
                        focus:outline-none focus:shadow-neon-blue
                        uppercase tracking-[0.5em] transition-all
                        ${codeError ? 'border-danger/70 focus:border-danger' : 'border-neon-blue/50 focus:border-neon-blue'}`}
@@ -128,7 +128,7 @@ export default function Home() {
             disabled={!sessionCode.trim() || validating}
             whileHover={{ scale: sessionCode.trim() && !validating ? 1.02 : 1 }}
             whileTap={{ scale: sessionCode.trim() && !validating ? 0.98 : 1 }}
-            className={`w-full py-5 text-2xl font-bold uppercase tracking-widest transition-all
+            className={`w-full py-5 text-2xl font-title font-bold uppercase tracking-widest transition-all
                       ${sessionCode.trim() && !validating
                         ? 'bg-gradient-to-r from-neon-blue to-neon-pink text-white shadow-neon-blue hover:shadow-neon-pink'
                         : 'bg-bg-card text-text-muted cursor-not-allowed'

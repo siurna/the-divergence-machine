@@ -1,9 +1,6 @@
 import React from 'react';
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Make Your Own Bubble',
@@ -23,7 +20,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-bg-dark text-text-primary antialiased`}>
+      <head>
+        <link rel="stylesheet" href="https://use.typekit.net/sha8jpb.css" />
+      </head>
+      <body className="font-body bg-bg-dark text-text-primary antialiased">
         {children}
       </body>
     </html>
