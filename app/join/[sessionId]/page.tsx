@@ -239,6 +239,118 @@ export default function JoinPage() {
     animals: { name: 'Animals', emoji: '🐾' },
   };
 
+  // ── Personalized insights computed from swipe data ──
+  const insights = useMemo(() => {
+    const allGroups = ['politics', 'tech', 'entertainment', 'science', 'sports', 'lifestyle', 'finance', 'animals'];
+
+    // Category distribution of likes
+    const likeCounts: Record<string, number> = {};
+    const seenCounts: Record<string, number> = {};
+    let totalLikes = 0;
+
+    for (const c of pastChoices) {
+      const item = contentPool.find(x => x.id === c.contentId);
+      if (!item) continue;
+      const group = getCategoryGroup(item.category);
+      seenCounts[group] = (seenCounts[group] || 0) + 1;
+      if (c.action === 'like') {
+        likeCounts[group] = (likeCounts[group] || 0) + 1;
+        totalLikes++;
+      }
+    }
+
+    // Feed breakdown: sorted by like count
+    const feedBreakdown = Object.entries(likeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, count]) => ({
+        category: cat,
+        count,
+        percent: totalLikes > 0 ? Math.round((count / totalLikes) * 100) : 0,
+      }));
+
+    // Blind spots: categories with 0 likes
+    const blindSpots = allGroups.filter(g => !likeCounts[g] || likeCounts[g] === 0);
+
+    // Diversity score: how many categories they liked out of 8
+    const diversityCount = allGroups.filter(g => (likeCounts[g] || 0) > 0).length;
+
+    // Predictability: find when the algorithm "figured them out"
+    // Check from card 8 onward: when did 70%+ of remaining served cards
+    // match the user's top 2 categories?
+    const top2 = feedBreakdown.slice(0, 2).map(f => f.category);
+    let figuredOutAt = pastChoices.length; // default: never
+    for (let i = 8; i < pastChoices.length - 3; i++) {
+      const remaining = pastChoices.slice(i);
+      const matchCount = remaining.filter(c => {
+        const item = contentPool.find(x => x.id === c.contentId);
+        if (!item) return false;
+        return top2.includes(getCategoryGroup(item.category));
+      }).length;
+      if (matchCount / remaining.length >= 0.7) {
+        figuredOutAt = i;
+        break;
+      }
+    }
+
+    // Algorithm accuracy: of cards served after figuredOutAt, what % did they like?
+    const postProfile = pastChoices.slice(figuredOutAt);
+    const postLikes = postProfile.filter(c => c.action === 'like').length;
+    const algorithmAccuracy = postProfile.length > 0
+      ? Math.round((postLikes / postProfile.length) * 100)
+      : 0;
+
+    // Social media match
+    const topCat = feedBreakdown[0]?.category || 'tech';
+    const secondCat = feedBreakdown[1]?.category;
+    const socialMediaMap: Record<string, { platform: string; reason: string }> = {
+      politics: { platform: 'Twitter / X', reason: 'Where the debates never end' },
+      tech: { platform: 'Reddit', reason: 'Deep dives and hot takes on everything new' },
+      entertainment: { platform: 'TikTok', reason: 'Endless scroll of exactly what you love' },
+      science: { platform: 'YouTube', reason: 'Long-form rabbit holes await you' },
+      sports: { platform: 'ESPN App', reason: 'Scores, highlights, and hot takes 24/7' },
+      lifestyle: { platform: 'Instagram', reason: 'Aesthetic feeds curated just for you' },
+      finance: { platform: 'Bloomberg', reason: 'Numbers, charts, and market analysis' },
+      animals: { platform: 'TikTok', reason: 'Cute animal compilations forever' },
+    };
+    const socialMatch = socialMediaMap[topCat] || socialMediaMap.tech;
+
+    // Rabbit hole prediction
+    const rabbitHoleMap: Record<string, string[]> = {
+      politics: ['political commentary compilations', 'debate reaction videos', 'election analysis deep dives'],
+      tech: ['AI documentaries at 2am', '"how it works" explainers', 'tech startup stories'],
+      entertainment: ['celebrity interviews', 'movie theory videos', 'behind-the-scenes content'],
+      science: ['space exploration documentaries', 'science experiment compilations', '"what would happen if" videos'],
+      sports: ['greatest plays compilations', 'athlete comeback stories', 'sports analytics breakdowns'],
+      lifestyle: ['productivity routines', 'travel vlogs', 'cooking challenge videos'],
+      finance: ['crypto analysis at midnight', 'investing strategy breakdowns', 'market crash documentaries'],
+      animals: ['baby animal compilations', 'wildlife rescue stories', 'nature documentary clips'],
+    };
+    const rabbitHoles = rabbitHoleMap[topCat] || rabbitHoleMap.tech;
+    const rabbitHole = rabbitHoles[Math.floor(Math.random() * rabbitHoles.length)];
+
+    // Like ratio: second half vs first half (did algorithm hook them?)
+    const halfPoint = Math.floor(pastChoices.length / 2);
+    const firstHalfLikes = pastChoices.slice(0, halfPoint).filter(c => c.action === 'like').length;
+    const secondHalfLikes = pastChoices.slice(halfPoint).filter(c => c.action === 'like').length;
+    const gotHooked = secondHalfLikes > firstHalfLikes;
+
+    return {
+      feedBreakdown,
+      blindSpots,
+      diversityCount,
+      figuredOutAt,
+      algorithmAccuracy,
+      socialMatch,
+      rabbitHole,
+      topCat,
+      secondCat,
+      totalLikes,
+      gotHooked,
+      firstHalfLikes,
+      secondHalfLikes,
+    };
+  }, [pastChoices]);
+
   // JOIN
   if (screen === 'join') {
     return (
@@ -387,52 +499,203 @@ export default function JoinPage() {
     );
   }
 
-  // COMPLETE
+  // COMPLETE — personalized insights
   return (
-    <div className="min-h-screen bg-bg-dark cyber-grid flex flex-col items-center justify-center p-6">
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-sm">
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', delay: 0.2 }}
-          className="w-20 h-20 bg-neon-green rounded-full flex items-center justify-center mx-auto mb-6"
-          style={{ boxShadow: '0 0 30px #39FF14' }}
-        >
-          <svg className="w-10 h-10 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
+    <div className="min-h-screen bg-bg-dark cyber-grid overflow-y-auto">
+      <div className="max-w-sm mx-auto px-5 py-8 space-y-6">
+        {/* Header */}
+        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', delay: 0.2 }}
+            className="w-16 h-16 bg-neon-green rounded-full flex items-center justify-center mx-auto mb-4"
+            style={{ boxShadow: '0 0 30px #39FF14' }}
+          >
+            <svg className="w-8 h-8 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </motion.div>
+          <h2 className="text-2xl font-title font-bold text-white mb-1">ALL DONE!</h2>
+          <p className="text-text-muted">You rated <span className="text-neon-blue font-code font-bold">{choices.length}</span> headlines</p>
         </motion.div>
-        <h2 className="text-3xl font-title font-bold text-white mb-4">ALL DONE!</h2>
-        <p className="text-xl text-text-muted mb-8">You rated <span className="text-neon-blue font-code font-bold">{choices.length}</span> headlines</p>
-        <div className="bg-bg-card/50 border border-neon-pink/30 p-6 mb-8">
-          <h3 className="text-neon-pink text-sm font-title uppercase tracking-wider mb-4">YOUR BUBBLE</h3>
-          {topCategories.length > 0 ? (
-            <div className="space-y-3">
-              {topCategories.map((cat, index) => {
-                const info = categoryInfo[cat];
-                const color = getCategoryColor(cat);
+
+        {/* ── PREDICTABILITY ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="bg-bg-card/80 border border-neon-pink/30 p-5"
+        >
+          <h3 className="text-neon-pink text-xs font-title uppercase tracking-[0.2em] mb-3">THE ALGORITHM FIGURED YOU OUT</h3>
+          <p className="text-5xl font-code font-bold text-white mb-1">
+            {insights.figuredOutAt < pastChoices.length ? (
+              <>{insights.figuredOutAt} <span className="text-xl text-text-muted">swipes</span></>
+            ) : (
+              <span className="text-2xl">COULDN&apos;T CRACK YOU</span>
+            )}
+          </p>
+          {insights.figuredOutAt < pastChoices.length ? (
+            <p className="text-text-muted text-sm">
+              After that, it predicted your choices with{' '}
+              <span className="text-neon-pink font-bold">{insights.algorithmAccuracy}%</span> accuracy
+            </p>
+          ) : (
+            <p className="text-neon-green text-sm font-bold">You resisted the algorithm!</p>
+          )}
+        </motion.div>
+
+        {/* ── FEED BREAKDOWN ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="bg-bg-card/80 border border-neon-blue/30 p-5"
+        >
+          <h3 className="text-neon-blue text-xs font-title uppercase tracking-[0.2em] mb-3">YOUR BUBBLE</h3>
+          {insights.feedBreakdown.length > 0 ? (
+            <div className="space-y-2">
+              {insights.feedBreakdown.map((item, idx) => {
+                const color = getCategoryColor(item.category);
+                const info = categoryInfo[item.category];
                 return (
                   <motion.div
-                    key={cat}
-                    initial={{ opacity: 0, x: -20 }}
+                    key={item.category}
+                    initial={{ opacity: 0, x: -15 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.5 + index * 0.1 }}
-                    className="flex items-center gap-3 p-3"
-                    style={{ backgroundColor: `${color}20`, borderLeft: `3px solid ${color}` }}
+                    transition={{ delay: 0.7 + idx * 0.08 }}
+                    className="flex items-center gap-2"
                   >
-                    <span className="text-2xl">{info?.emoji}</span>
-                    <span className="text-white font-medium">{info?.name || cat}</span>
-                    {index === 0 && <span className="ml-auto text-xs font-mono" style={{ color }}>TOP</span>}
+                    <span className="text-lg">{info?.emoji}</span>
+                    <span className="text-white text-sm font-medium w-24 truncate">{info?.name || item.category}</span>
+                    <div className="flex-1 h-5 bg-bg-dark/50 relative overflow-hidden">
+                      <motion.div
+                        className="h-full"
+                        style={{ backgroundColor: color }}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${item.percent}%` }}
+                        transition={{ delay: 0.9 + idx * 0.08, duration: 0.5 }}
+                      />
+                    </div>
+                    <span className="text-text-muted text-xs font-code w-10 text-right">{item.percent}%</span>
                   </motion.div>
                 );
               })}
             </div>
           ) : (
-            <p className="text-text-muted">No clear preferences</p>
+            <p className="text-text-muted text-sm">You skipped everything!</p>
           )}
-        </div>
-        <p className="text-text-muted">Look at the screen to see everyone's bubbles!</p>
-      </motion.div>
+        </motion.div>
+
+        {/* ── BLIND SPOTS ── */}
+        {insights.blindSpots.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.9 }}
+            className="bg-bg-card/80 border border-danger/30 p-5"
+          >
+            <h3 className="text-danger text-xs font-title uppercase tracking-[0.2em] mb-3">YOUR BLIND SPOTS</h3>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {insights.blindSpots.map(cat => {
+                const info = categoryInfo[cat];
+                return (
+                  <span key={cat} className="px-3 py-1 bg-danger/10 border border-danger/30 text-white text-sm">
+                    {info?.emoji} {info?.name || cat}
+                  </span>
+                );
+              })}
+            </div>
+            <p className="text-text-muted text-xs">
+              In a real feed, you&apos;d never know these topics exist.
+              {insights.blindSpots.length >= 4 && ' That\'s half the world hidden from you.'}
+            </p>
+          </motion.div>
+        )}
+
+        {/* ── HOOK CHECK ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.1 }}
+          className="bg-bg-card/80 border border-warning/30 p-5"
+        >
+          <h3 className="text-warning text-xs font-title uppercase tracking-[0.2em] mb-3">
+            {insights.gotHooked ? 'THE ALGORITHM HOOKED YOU' : 'YOU FOUGHT BACK'}
+          </h3>
+          <div className="flex items-center gap-4 mb-2">
+            <div className="text-center flex-1">
+              <p className="text-2xl font-code font-bold text-text-muted">{insights.firstHalfLikes}</p>
+              <p className="text-xs text-text-muted">likes (first half)</p>
+            </div>
+            <span className="text-xl">{insights.gotHooked ? '→' : '←'}</span>
+            <div className="text-center flex-1">
+              <p className={`text-2xl font-code font-bold ${insights.gotHooked ? 'text-warning' : 'text-neon-green'}`}>{insights.secondHalfLikes}</p>
+              <p className="text-xs text-text-muted">likes (second half)</p>
+            </div>
+          </div>
+          <p className="text-text-muted text-xs">
+            {insights.gotHooked
+              ? 'You liked more as your feed narrowed — the algorithm won.'
+              : 'You got more selective as the bubble formed — nice awareness.'}
+          </p>
+        </motion.div>
+
+        {/* ── SOCIAL MEDIA MATCH ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.3 }}
+          className="bg-bg-card/80 border border-neon-purple/30 p-5"
+          style={{ borderColor: '#BF00FF50' }}
+        >
+          <h3 className="text-xs font-title uppercase tracking-[0.2em] mb-3" style={{ color: '#BF00FF' }}>THE ALGORITHM THINKS YOU LIVE ON</h3>
+          <p className="text-2xl font-title font-bold text-white mb-1">{insights.socialMatch.platform}</p>
+          <p className="text-text-muted text-sm">{insights.socialMatch.reason}</p>
+        </motion.div>
+
+        {/* ── RABBIT HOLE ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.5 }}
+          className="bg-bg-card/80 border border-neon-yellow/30 p-5"
+          style={{ borderColor: '#FFE50050' }}
+        >
+          <h3 className="text-xs font-title uppercase tracking-[0.2em] mb-3" style={{ color: '#FFE500' }}>YOUR YOUTUBE RABBIT HOLE</h3>
+          <p className="text-white text-lg font-medium">{insights.rabbitHole}</p>
+          <p className="text-text-muted text-xs mt-1">...at 2am, obviously</p>
+        </motion.div>
+
+        {/* ── DIVERSITY SCORE ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.7 }}
+          className="bg-bg-card/80 border border-neon-green/30 p-5 text-center"
+        >
+          <h3 className="text-neon-green text-xs font-title uppercase tracking-[0.2em] mb-2">ALGORITHM RESISTANCE</h3>
+          <p className="text-4xl font-code font-bold text-white mb-1">
+            {insights.diversityCount}<span className="text-lg text-text-muted">/8</span>
+          </p>
+          <p className="text-text-muted text-xs">
+            {insights.diversityCount <= 2 ? 'Easy to profile — you have a type.'
+              : insights.diversityCount <= 4 ? 'Moderate diversity — the algorithm still boxed you.'
+              : insights.diversityCount <= 6 ? 'Hard to pin down — you kept the algorithm guessing.'
+              : 'Maximum resistance — the algorithm couldn\'t build your bubble!'}
+          </p>
+        </motion.div>
+
+        {/* Footer */}
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 2 }}
+          className="text-center text-text-muted text-sm pt-2 pb-4"
+        >
+          Look at the screen to see everyone&apos;s bubbles!
+        </motion.p>
+      </div>
     </div>
   );
 }
