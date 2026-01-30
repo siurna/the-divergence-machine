@@ -264,7 +264,7 @@ export default function DashboardPage() {
     await updateGameState(sessionId, 'reveal');
     if (session?.participants) {
       const participantList = Object.values(session.participants) as Participant[];
-      const detectedClusters = detectClusters(session.participants, 0.4);
+      const detectedClusters = detectClusters(session.participants, 0.3);
       setClusters(detectedClusters);
       await updateSessionStats(sessionId, {
         sharedReality: calculateSharedReality(participantList),

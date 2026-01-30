@@ -736,8 +736,11 @@ export function getNextRecommendedCard(
       groupWeights[group] = 0.05;
     } else {
       // Liked at least once: boost with compounding amplification
-      // More likes = exponentially more likely to see more
-      groupWeights[group] = likes * amplification - skips * 0.5;
+      // More likes = exponentially more likely to see more.
+      // Skips push back at 1.5x weight — sustained skipping CAN loosen
+      // the bubble, but it takes real effort (just like real platforms).
+      // e.g. 3 likes at amp=4: 12 pts. Need ~8 skips to escape (12/1.5).
+      groupWeights[group] = likes * amplification - skips * 1.5;
       // Floor at 0.1 so categories can still occasionally appear
       groupWeights[group] = Math.max(0.1, groupWeights[group]);
     }
